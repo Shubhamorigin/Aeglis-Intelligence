@@ -113,7 +113,8 @@ async def verify_consumer_origin(request: Request):
     allowed_origins = [
         "https://falcon-detect.in",
         "http://localhost:3000",
-        "http://127.0.0.1:5501"
+        "http://127.0.0.1:5501",
+        "https://falcondetect.vercel.app"
     ]
     if origin not in allowed_origins:
         raise HTTPException(
