@@ -3,6 +3,7 @@ fastapi
 groq
 httpx
 pdfminer.six
+python-multipart
 pillow
 python-dotenv
 python-magic
