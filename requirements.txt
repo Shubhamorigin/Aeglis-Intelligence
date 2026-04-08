@@ -5,7 +5,7 @@ httpx
 pdfminer.six
 pillow
 python-dotenv
-python-magic-bin
+python-magic
 pydantic
 requests
 supabase
