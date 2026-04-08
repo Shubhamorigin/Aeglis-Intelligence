@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+supabase
+python-dotenv
+requests
+pydantic
+requests
+groq
+python-magic-bin
+pillow
+androguard
+pdfminer.six
+androguard
+
