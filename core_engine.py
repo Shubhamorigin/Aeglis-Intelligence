@@ -142,7 +142,13 @@ def scan_groq_ai(text_message):
     prompt = """
     You are 'Falcon Detect', an elite AI cybersecurity guard. 
     Analyze the following message for scams, phishing, or social engineering.
-    Reply ONLY in this JSON format: {"risk": "DANGER" or "SAFE", "reason": "2-3 line concise reason in English explaining why"}
+    
+    STRICT RULES TO AVOID FALSE POSITIVES (CRITICAL):
+    1. STANDARD LINKS ARE SAFE: Links to zoom.us (including meeting IDs like zoom.us/j/...), meet.google.com, drive.google.com, and teams.microsoft.com are 100% normal. NEVER flag them as danger or suspicious just because they contain a meeting ID, password parameter, or numbers.
+    2. NORMAL CONTEXT: If the message is about office work, broken laptops, school classes, or casual chat, it is SAFE.
+    3. FLAG AS DANGER ONLY IF: The message demands financial info, OTPs, urgent bank action, or uses weird/unknown domains (e.g., .xyz, .vip, free-prize-links).
+    
+    Reply ONLY in this JSON format: {"risk": "DANGER" or "SAFE" or "WARNING", "reason": "2-3 line concise reason in English explaining why"}
     """
     
     payload = {
