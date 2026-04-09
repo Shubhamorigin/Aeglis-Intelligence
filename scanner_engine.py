@@ -191,7 +191,7 @@ class FalconEngine:
     # 🚨 NAYA FEATURE 2: THE VISION ENGINE (RAM SAVER) 🚨
     async def _scan_image(self, path):
         """Image Forensics + Quant Hopper 4 Scout Vision Analysis"""
-        findings = {"type": "GROQ_VISION_SCAN", "metadata": {}, "extracted_text": "", "threat_detected": False}
+        findings = {"type": "FALCON_VISION_SCAN", "metadata": {}, "extracted_text": "", "threat_detected": False}
         try:
             # 1. Standard Forensics (Location Check)
             img = Image.open(path)
