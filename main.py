@@ -113,8 +113,7 @@ async def verify_consumer_origin(request: Request):
     allowed_origins = [
         "https://falcon-detect.in",
         "http://localhost:3000",
-        "http://127.0.0.1:5501",
-        "https://falcondetect.vercel.app"
+        "http://127.0.0.1:5501"
     ]
     if origin not in allowed_origins:
         raise HTTPException(
@@ -287,7 +286,7 @@ async def developer_scan(request: ScanRequest, dev_user_id: str = Depends(verify
         core_result = await run_in_threadpool(falcon_detect_master_scan, request.input_text)
         
         # ai_res ki jagah core_result.get("risk_level") use kiya
-        if core_result.get("risk_level") == "DANGER":
+        if core_result.get("risk_level") == "DANGER" and core_result.get("type") != "CACHED_RESULT":
             await run_in_threadpool(save_to_cache, request.input_text, "DANGER", "Falcon B2B API Engine")
             
         # 🚀 Pass request.user_id here
@@ -405,8 +404,7 @@ async def scan_text(
         core_result = await run_in_threadpool(falcon_detect_master_scan, request.input_text)
 
         # Step 2: AUTO-SAVE TO CACHE (If the result is dangerous)
-        if core_result.get("risk_level") == "DANGER":
-            # Run in threadpool as it interacts with sync database operations
+        if core_result.get("risk_level") == "DANGER" and core_result.get("type") != "CACHED_RESULT":
             await run_in_threadpool(save_to_cache, request.input_text, "DANGER", "Falcon AI Text Intelligence")
             
         # Step 3: Save to Database History
@@ -471,8 +469,11 @@ async def deep_scan(
         ai_res = await get_ai_verdict(combined_report, f"File: {file.filename} | Msg: {input_text or ''}")
 
         # 5. AUTO-SAVE TO CACHE
-        if ai_res["risk_level"] == "DANGER" and "file_hash" in file_report:
-            if file_report["file_hash"]:
+        if ai_res["risk_level"] == "DANGER" and file_report.get("file_hash"):
+            # Check karte hain ki kya ye hash pehle se cache mein tha
+            is_already_cached = file_report.get("global_reputation", {}).get("type") == "CACHED_RESULT"
+            
+            if not is_already_cached:
                 await run_in_threadpool(save_to_cache, file_report["file_hash"], "DANGER", "Falcon Deep Engine Autopsy")
 
         # 6. Save to Database History
