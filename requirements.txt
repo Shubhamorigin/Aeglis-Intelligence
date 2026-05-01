@@ -5,7 +5,8 @@ httpx
 pdfminer.six
 pillow
 python-dotenv
-python-magic-bin
+python-magic-bin ; sys_platform == 'win32'
+python-magic ; sys_platform != 'win32'
 pydantic
 requests
 slowapi
