@@ -32,9 +32,13 @@ from webhook_engine import dispatch_webhook
 load_dotenv()
 
 app = FastAPI(
-    title="Aeglis API v3", 
-    description="The Ultimate Hybrid AI Security Engine (Consumer + Developer B2B)"
+    title="Aeglis API v3",
+    description="The Ultimate Hybrid AI Security Engine (Consumer + Developer B2B)",
+    docs_url=None,   # disables /docs
+    redoc_url=None,  # disables /redoc
+    openapi_url=None # disables /openapi.json
 )
+
 
 # Rate Limiter Setup (DDoS Protection)
 limiter = Limiter(key_func=get_remote_address)
