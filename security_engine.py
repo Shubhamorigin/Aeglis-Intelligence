@@ -1,5 +1,5 @@
 # security_engine.py
-# 🦅 Falcon Detect: API Key Generation and Verification System
+# 🦅 Aeglis: API Key Generation and Verification System
 
 import secrets
 import hashlib

@@ -3,11 +3,12 @@ fastapi
 groq
 httpx
 pdfminer.six
-python-multipart
 pillow
 python-dotenv
-python-magic
+python-magic-bin
 pydantic
 requests
+slowapi
 supabase
 uvicorn
+

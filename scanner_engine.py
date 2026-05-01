@@ -13,7 +13,7 @@ from groq import AsyncGroq
 # Importing shared intelligence and cache checker from core_engine
 from core_engine import URL_PATTERN, IP_PATTERN, scan_virustotal, scan_webrisk, check_local_cache, scan_alienvault
 
-class FalconEngine:
+class AeglisEngine:
     def __init__(self, upload_dir="temp_uploads"):
         self.upload_dir = upload_dir
         if not os.path.exists(upload_dir):
@@ -95,18 +95,18 @@ class FalconEngine:
                 alienvault_res = scan_alienvault(file_hash, "file")
                 if alienvault_res and alienvault_res["risk_level"] == "DANGER":
                     vt_report = alienvault_res
-                    print("👽 File Hash Stopped by AlienVault OTX!")
+                    print("👽 File Hash Stopped by Aeglis Deep-Intel Network!")
                 else:
                     # STEP C: THE AI GATEKEEPER LOGIC (Cost: $0)
-                    print("🧠 Hash Unknown. Consulting falcon's Quant Hopper before VT...")
+                    print("🧠 Hash Unknown. Consulting Aeglis Deep-Intel Network before Aeglis Autopsy Sandbox...")
                     ai_score = await self._ai_gatekeeper_check(file_path, file_type)
                     
                     if ai_score >= 7:
-                        print(f"⚠️ AI Score {ai_score}/10! Calling VirusTotal API...")
+                        print(f"⚠️ AI Score {ai_score}/10! Aeglis Autopsy Sandbox...")
                         vt_report = scan_virustotal(file_hash)
                     else:
-                        print(f"✅ AI Score {ai_score}/10. Safe! Saving VirusTotal API limits.")
-                        vt_report = {"risk_level": "SAFE", "reason": "Cleared by Falcon's Quant Hopper Gatekeeper"}
+                        print(f"✅ AI Score {ai_score}/10. Safe! Saving Aeglis Autopsy Sandbox limits.")
+                        vt_report = {"risk_level": "SAFE", "reason": "Cleared by Aeglis's Quant Hopper Gatekeeper"}
         
         report = {
             "mime_type": file_type,
@@ -139,13 +139,23 @@ class FalconEngine:
             urls = list(set(URL_PATTERN.findall(content)))
             findings["indicators"] = urls
             
+            # PDF Autopsy Fix
             for url in urls[:5]:
                 url_res = check_local_cache(url)
+                
+                # Check WebRisk PEHLE
+                if not url_res:
+                    webrisk_result = scan_webrisk(url)
+                    if webrisk_result and webrisk_result.get("risk_level") == "DANGER":
+                        url_res = webrisk_result
+                
+                # AlienVault BAAD MEIN
                 if not url_res:
                     av_res = scan_alienvault(url, "url")
-                    if av_res and av_res["risk_level"] == "DANGER": url_res = av_res
-                if not url_res:
-                    url_res = scan_webrisk(url)
+                    # Dhyan rakhna, URL ke liye pulse count jyada hona chahiye
+                    if av_res and av_res["risk_level"] == "DANGER": 
+                        url_res = av_res
+                        
                 if url_res and url_res.get("risk_level") == "DANGER":
                     findings["suspicious_flags"].append(f"MALICIOUS_LINK_DETECTED: {url}")
 
@@ -191,7 +201,7 @@ class FalconEngine:
     # 🚨 NAYA FEATURE 2: THE VISION ENGINE (RAM SAVER) 🚨
     async def _scan_image(self, path):
         """Image Forensics + Quant Hopper 4 Scout Vision Analysis"""
-        findings = {"type": "FALCON_VISION_SCAN", "metadata": {}, "extracted_text": "", "threat_detected": False}
+        findings = {"type": "AEGLIS_VISION_SCAN", "metadata": {}, "extracted_text": "", "threat_detected": False}
         try:
             # 1. Standard Forensics (Location Check)
             img = Image.open(path)

@@ -1,5 +1,5 @@
 # webhook_engine.py
-# 🦅 Falcon Detect: Secure Webhook Dispatcher System
+# 🦅 Aeglis: Secure Webhook Dispatcher System
 
 import hmac
 import hashlib
@@ -17,7 +17,7 @@ def generate_webhook_secret() -> str:
 
 def create_hmac_signature(payload: dict, secret: str) -> str:
     """
-    Developer ko kaise pata chalega ki data Falcon ne bheja hai kisi hacker ne nahi?
+    Developer ko kaise pata chalega ki data Aeglis ne bheja hai kisi hacker ne nahi?
     Ye function data ko developer ke secret se lock karta hai aur ek "Signature" banata hai.
     """
     # Payload ko bina space ke string banate hain (Strict JSON format)
@@ -49,8 +49,8 @@ async def dispatch_webhook(webhook_url: str, webhook_secret: str, event_type: st
     # Header mein Apna Name aur Signature bhejenge
     headers = {
         "Content-Type": "application/json",
-        "Falcon-Signature": signature,
-        "User-Agent": "Falcon-Webhook-Engine/1.0"
+        "Aeglis-Signature": signature,
+        "User-Agent": "Aeglis-Webhook-Engine/1.0"
     }
 
     # Asynchronous request bhejte hain (Taaki tera FastAPI block na ho)
