@@ -146,7 +146,8 @@ async def verify_consumer_origin(request: Request):
     """Guards against direct API abuse via fake clients"""
     origin = request.headers.get("origin")
     allowed_origins = [
-        "https://Aeglis-detect.in",
+        "https://www.aeglis.com",
+        "https://developer.aeglis.com",
         "http://localhost:3000",
         "http://127.0.0.1:5501",
         "http://localhost:5502",
@@ -302,11 +303,11 @@ async def login(payload: LoginPayload):
 async def google_auth_login(payload: GoogleAuthPayload = None):
     try:
         # Frontend jo URL bhejega (Dev ya Consumer), usko yahan pakdenge
-        target = payload.target_url if payload else "http://127.0.0.1:5501/app.html"
+        target = payload.target_url if payload else "https://www.aeglis.com/app.html"
         
         # SMART TRICK: Supabase/Google ko bol rahe hain ki callback ke time 
         # ye 'target_url' wapas humein bhej dena
-        backend_callback = f"http://127.0.0.1:8000/auth/callback?target_url={target}"
+        backend_callback = f"https://api.aeglis.com/auth/callback?target_url={target}"
         
         res = supabase.auth.sign_in_with_oauth({
             "provider": "google",
@@ -317,19 +318,19 @@ async def google_auth_login(payload: GoogleAuthPayload = None):
         raise HTTPException(status_code=500, detail="Google Auth initialization failed")
     
 @app.get("/auth/callback")
-async def google_auth_callback(request: Request, code: str, target_url: str = "http://127.0.0.1:5501/app.html"):
+async def google_auth_callback(request: Request, code: str, target_url: str = "https://www.aeglis.com/app.html"):
     try:
         auth_response = supabase.auth.exchange_code_for_session({"auth_code": code})
         token = auth_response.session.access_token
         
         # 🚀 TRUE SSO FIX: Hamesha pehle central Auth (5501) par bhejo token ke sath
-        central_auth = "http://127.0.0.1:5501/auth.html"
+        central_auth = "https://www.aeglis.com/auth.html"
         
         # User central auth pe aayega, wahan JS usko save karega, aur target_url pe bhej dega
         return RedirectResponse(url=f"{central_auth}?token={token}&redirect_to={target_url}")
     except Exception as e:
         # Agar error aaya to fallback main login page par
-        return RedirectResponse(url="http://127.0.0.1:5501/auth.html?error=auth_failed")
+        return RedirectResponse(url="https://www.aeglis.com/auth.html?error=auth_failed")
     
 @app.post("/profile/me")
 async def get_my_profile(request: Request, user_id: str = Depends(get_current_user)):
