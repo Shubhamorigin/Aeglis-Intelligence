@@ -107,17 +107,37 @@ class GoogleAuthPayload(BaseModel):
 # =====================================================================
 
 async def get_current_user(request: Request) -> str:
-    """Extracts and verifies JWT Token to return secure user_id (B2C Guard)"""
+    """Extracts and verifies JWT Token OR Device Key to return secure user_id (Hybrid Guard)"""
     auth = request.headers.get("Authorization")
+    
     if not auth or not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Invalid authorization header")
+        
     token = auth[7:]
+    
     try:
-        user = supabase.auth.get_user(token)
-        if not user.user:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return user.user.id
-    except:
+        # 🚀 THE UPGRADE: Agar Kotlin background service se Device Key aayi hai
+        if token.startswith("aeglis_dev_"):
+            # Supabase database query: Check if this device key exists and belongs to a user
+            response = supabase.table("device_tokens").select("user_id").eq("key", token).execute()
+            
+            # Agar array empty hai, matlab key invalid ya delete ho chuki hai
+            if not response.data:
+                raise HTTPException(status_code=401, detail="Invalid or Revoked Device Key")
+                
+            # Key valid hai! Database se direct user_id return kar do
+            return response.data[0]["user_id"]
+            
+        # 🛡️ THE ORIGINAL: Agar frontend web se normal JWT aaya hai
+        else:
+            user = supabase.auth.get_user(token)
+            if not user.user:
+                raise HTTPException(status_code=401, detail="Invalid JWT token")
+            return user.user.id
+            
+    except Exception as e:
+        # Backend terminal mein print karna zaroori hai debugging ke liye
+        print(f"Auth Blocked: {str(e)}") 
         raise HTTPException(status_code=401, detail="Token verification failed")
 
 async def verify_and_deduct_credit(current_user_id: str = Depends(get_current_user)) -> str:
