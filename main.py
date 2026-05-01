@@ -355,6 +355,35 @@ async def google_auth_callback(request: Request, code: str, target_url: str = "h
     except Exception as e:
         # Agar error aaya to fallback main login page par
         return RedirectResponse(url="https://www.aeglis.com/auth.html?error=auth_failed")
+
+
+@app.post("/auth/generate-device-key")
+async def generate_device_key(user_id: str = Depends(get_current_user)):
+    """
+    Frontend JS call karega jab user Auto-Scan ON karega.
+    Ye endpoint naya 'aeglis_dev_' token banayega aur Supabase me save karega.
+    """
+    try:
+        # 1. Ekdum secure, un-guessable 32-byte string generate kar
+        raw_key = secrets.token_urlsafe(32)
+        
+        # 2. Apna official prefix laga de
+        device_key = f"aeglis_dev_{raw_key}"
+        
+        # 3. Supabase ke naye 'device_tokens' table me save kar de
+        data = {
+            "user_id": user_id,
+            "key": device_key
+        }
+        
+        response = supabase.table("device_tokens").insert(data).execute()
+        
+        # 4. Frontend ko ye naya token de do taaki wo Kotlin ko pass kar sake
+        return {"status": "success", "device_key": device_key, "message": "Device activated"}
+        
+    except Exception as e:
+        print(f"Key Generation Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Could not generate device key")
     
 @app.post("/profile/me")
 async def get_my_profile(request: Request, user_id: str = Depends(get_current_user)):
