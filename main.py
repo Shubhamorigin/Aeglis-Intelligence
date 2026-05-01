@@ -95,7 +95,7 @@ class DeleteHistoryPayload(BaseModel):
     scan_id: int
 
 class GoogleAuthPayload(BaseModel):
-    target_url: str = "http://127.0.0.1:5501/app.html" # Default Consumer App
+    target_url: str = "https://www.aeglis.com/app.html" # Default Consumer App
 
 
 # =====================================================================
