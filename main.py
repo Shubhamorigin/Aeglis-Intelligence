@@ -101,6 +101,9 @@ class DeleteHistoryPayload(BaseModel):
 class GoogleAuthPayload(BaseModel):
     target_url: str = "https://www.aeglis.com/app.html" # Default Consumer App
 
+class NativeGoogleAuth(BaseModel):
+    google_token: str
+
 
 # =====================================================================
 # 3. CORE DEPENDENCIES (Security Guards)
@@ -356,34 +359,33 @@ async def google_auth_callback(request: Request, code: str, target_url: str = "h
         # Agar error aaya to fallback main login page par
         return RedirectResponse(url="https://www.aeglis.com/auth.html?error=auth_failed")
 
-
-@app.post("/auth/generate-device-key")
-async def generate_device_key(user_id: str = Depends(get_current_user)):
-    """
-    Frontend JS call karega jab user Auto-Scan ON karega.
-    Ye endpoint naya 'aeglis_dev_' token banayega aur Supabase me save karega.
-    """
+@app.post("/auth/native-google")
+async def native_google_login(payload: NativeGoogleAuth):
+    """B2C Endpoint: For Android Native Google Sign-In via Supabase"""
     try:
-        # 1. Ekdum secure, un-guessable 32-byte string generate kar
-        raw_key = secrets.token_urlsafe(32)
+        # 🚀 Supabase ka apna Native Magic
+        # Ye Google Token ko verify karega aur user ko DB mein login/signup kar dega
+        auth_response = supabase.auth.sign_in_with_id_token({
+            "provider": "google",
+            "id_token": payload.google_token
+        })
         
-        # 2. Apna official prefix laga de
-        device_key = f"aeglis_dev_{raw_key}"
-        
-        # 3. Supabase ke naye 'device_tokens' table me save kar de
-        data = {
-            "user_id": user_id,
-            "key": device_key
+        if not auth_response.session:
+            raise HTTPException(status_code=401, detail="Google Auth failed at Supabase")
+            
+        # Supabase ne apna JWT (access_token) de diya hai!
+        return {
+            "status": "success", 
+            "access_token": auth_response.session.access_token,
+            "message": "Intelligence Engine Authenticated via Supabase"
         }
         
-        response = supabase.table("device_tokens").insert(data).execute()
-        
-        # 4. Frontend ko ye naya token de do taaki wo Kotlin ko pass kar sake
-        return {"status": "success", "device_key": device_key, "message": "Device activated"}
-        
     except Exception as e:
-        print(f"Key Generation Error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Could not generate device key")
+        print(f"🚨 Native Auth Error: {e}")
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+
+
     
 @app.post("/profile/me")
 async def get_my_profile(request: Request, user_id: str = Depends(get_current_user)):
