@@ -367,7 +367,7 @@ async def native_google_login(payload: NativeGoogleAuth):
         # Ye Google Token ko verify karega aur user ko DB mein login/signup kar dega
         auth_response = supabase.auth.sign_in_with_id_token({
             "provider": "google",
-            "id_token": payload.google_token
+            "token": payload.google_token
         })
         
         if not auth_response.session:
