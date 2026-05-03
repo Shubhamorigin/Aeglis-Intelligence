@@ -66,6 +66,7 @@ MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB safety limit
 
 class TextScanPayload(BaseModel):
     input_text: str
+    lang: str = "en"
     # 🚨 SECURITY FIX: Frontend se user_id accept karna band kar diya hai.
     # Ab system sirf JWT token ko trust karega user_id nikalne ke liye.
 
@@ -224,9 +225,23 @@ async def verify_developer_key(authorization: str = Depends(api_key_header)) -> 
 # 4. HELPER FUNCTIONS
 # =====================================================================
 
-async def get_ai_verdict(report_data: dict, context_val: str):
+async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
     """Groq Llama 3.3 Intelligence Analysis"""
+    
+    # 🚀 1. The Smart Language Mapper (Short code to Full Name)
+    language_map = {
+        "en": "English",
+        "hi": "Hindi",
+        "es": "Spanish",
+        "pt": "Portuguese",
+        "id": "Indonesian",
+        "ar": "Arabic"
+    }
+    target_language = language_map.get(lang, "English") # Default English rahega
+    
     safe_context = context_val[:2000] + "... [TRUNCATED]" if context_val and len(context_val) > 2000 else context_val
+    
+    # 🚀 2. Prompt mein target_language inject kar diya
     prompt = f"""
     You are Aeglis Intelligence, a senior cybersecurity analyst.
     Analyze this combined report and determine the safety.
@@ -243,6 +258,7 @@ async def get_ai_verdict(report_data: dict, context_val: str):
     2. Do NOT give WARNING just because file hash is unknown.
     3. Output strictly in JSON format with EXACTLY two keys, no more, no less: 
     {{"risk_level": "...", "reason": "..."}}
+    4. CRITICAL TRANSLATION: You MUST write the "reason" field strictly in {target_language}. Do not output the reason in any other language.
     
     Ensure your combined explanation and advice goes 40 words entirely into the "reason" key.
     """
@@ -260,6 +276,7 @@ async def get_ai_verdict(report_data: dict, context_val: str):
         print(f"⚠️ Groq AI Error: {e}")
         return {"risk_level": "WARNING", "reason": "AI Analysis failed, but indicators look suspicious."}
 
+    
 async def log_api_call(dev_user_id: str, endpoint: str, status_code: int, start_time: float, risk_level: str = None, end_user_id: str = "anonymous"):
     """Records B2B request into api_logs"""
     latency_ms = int((time.time() - start_time) * 1000)
@@ -514,7 +531,8 @@ async def scan_text(
     _: bool = Depends(verify_consumer_origin)
 ):
     try:
-        core_result = await run_in_threadpool(Aeglis_master_scan, payload.input_text)
+        # 🚀 FIX: payload.lang ko Aeglis_master_scan mein bhej diya
+        core_result = await run_in_threadpool(Aeglis_master_scan, payload.input_text, payload.lang)
 
         if core_result.get("risk_level") == "DANGER" and core_result.get("type") != "CACHED_RESULT":
             await run_in_threadpool(save_to_cache, payload.input_text, "DANGER", "Aeglis AI Multi Intelligence")
@@ -540,6 +558,7 @@ async def deep_scan(
     request: Request,
     file: UploadFile = File(...),
     input_text: str = Form(None),
+    lang: str = Form("en"), 
     current_user_id: str = Depends(verify_and_deduct_credit),
     _: bool = Depends(verify_consumer_origin)
 ):
@@ -566,7 +585,8 @@ async def deep_scan(
         }
 
         # 3. Get AI Intelligence Verdict
-        ai_res = await get_ai_verdict(combined_report, f"File: {file.filename} | Msg: {input_text or ''}")
+        # 🚀 FIX: lang variable ko get_ai_verdict function mein bhej diya
+        ai_res = await get_ai_verdict(combined_report, f"File: {file.filename} | Msg: {input_text or ''}", lang)
         print(f"🧠 Raw Groq Output: {ai_res}")
         
         # 🛡️ FIX 1: Safe dictionary .get() to prevent KeyErrors if Groq hallucinates
@@ -619,7 +639,7 @@ async def deep_scan(
         print(f"❌ Deep Scan Error: {str(e)}")
         # Ab terminal/log me exact error string print hogi
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-    
+        
 @app.post("/get/history")
 async def get_history(request: Request, current_user_id: str = Depends(get_current_user)):
     scan_res = supabase_admin.table('scans').select('id, input_data, risk_level, scanned_at, is_deleted, reason').eq('user_id', current_user_id).execute()
