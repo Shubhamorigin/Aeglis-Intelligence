@@ -213,8 +213,16 @@ def scan_webrisk(url_to_check):
     return {"risk_level": "ERROR", "reason": "Aeglis SafeLink Engine scan failed.", "type": "AEGLIS_SAFELINK"}
 
 
-def scan_groq_ai(text_message, context_flag=""):
+def scan_groq_ai(text_message, context_flag="", lang="en"):
     """Analyzes message context using Groq Llama 3.3 model with Threat Intel Context."""
+    
+    # 🚀 The Smart Language Mapper
+    language_map = {
+        "en": "English", "hi": "Hindi", "es": "Spanish",
+        "pt": "Portuguese", "id": "Indonesian", "ar": "Arabic"
+    }
+    target_language = language_map.get(lang, "English")
+    
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     if not GROQ_API_KEY:
@@ -234,6 +242,7 @@ def scan_groq_ai(text_message, context_flag=""):
     2. RESPECT INTEL: If the Report says 'DANGER', you MUST flag the final risk as DANGER and explain why based on the intel.
     3. WHITELIST SAFEGUARD: If the report says the domain is WHITELISTED, do NOT flag the link. ONLY flag if the text itself is manipulating the user (e.g., asking for OTPs).
     4. IPs WITHOUT CONTEXT: If Aeglis Deep-Intel Network says the IP is SAFE and there is no scam text, mark it SAFE.
+    5. CRITICAL TRANSLATION: You MUST write the "reason" field strictly in {target_language}. Do not output the reason in any other language.
     
     Reply ONLY in this JSON format: {{"risk_level": "DANGER" | "SAFE" | "WARNING", "reason": "2-3 lines explaining the final verdict to the user."}}
     """
@@ -265,14 +274,13 @@ def scan_groq_ai(text_message, context_flag=""):
 
 # --- THE MASTER ROUTER (WATERFALL MODEL) ---
 
-def Aeglis_master_scan(user_input):
+def Aeglis_master_scan(user_input, lang="en"): # 👈 lang accept kiya
     """Main routing engine that gathers ALL intel and passes it to Groq AI. (No internal DB caching)"""
     user_input = user_input.strip()
 
     # Step 0: Check Local Cache First (Cost: $0)
     cached = check_local_cache(user_input)
     if cached: 
-        # BRANDING: Renamed to Aeglis Global Cache
         print("🛡️ Stopped by Aeglis Global Cache!")
         return cached
         
@@ -283,11 +291,10 @@ def Aeglis_master_scan(user_input):
         av_res = scan_alienvault(user_input, "file")
         vt_res = scan_virustotal(user_input)
         
-        # BRANDING UPDATED: AlienVault -> Aeglis Deep-Intel Network | VirusTotal -> Aeglis Autopsy Sandbox
         intel_context.append(f"Aeglis Deep-Intel Network: {av_res}")
         intel_context.append(f"Aeglis Autopsy Sandbox: {vt_res}")
         
-        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context))
+        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang) # 👈 lang pass kiya
         
     # 2. URL SCAN
     url_found = URL_PATTERN.search(user_input)
@@ -295,16 +302,13 @@ def Aeglis_master_scan(user_input):
         target_url = url_found.group(0)
         pure_domain = extract_pure_domain_from_user_input(target_url)
         
-        # 🚨 THE FIX: Known URL Shorteners List
         KNOWN_SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "is.gd", "buff.ly", "ow.ly", "cutt.ly", "rebrand.ly", "shorturl.at"}
         
-        # Unmask the URL if it's a shortener
         if pure_domain in KNOWN_SHORTENERS:
             target_url = unmask_short_url(target_url)
-            pure_domain = extract_pure_domain_from_user_input(target_url) # Naya domain nikalo
+            pure_domain = extract_pure_domain_from_user_input(target_url) 
             intel_context.append("Notice: A shortened URL was detected and unmasked to reveal its true destination.")
             
-        # Ab normal flow chalega (Naye ya Purane domain ke saath)
         if pure_domain in MASTER_WHITELIST:
             intel_context.append(f"Domain '{pure_domain}' is verified by Aeglis Zero-Latency Trust.")
         else:
@@ -314,7 +318,7 @@ def Aeglis_master_scan(user_input):
             intel_context.append(f"Aeglis SafeLink Engine: {webrisk_res}")
             intel_context.append(f"Aeglis Deep-Intel Network: {av_res}")
             
-        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context))
+        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang) # 👈 lang pass kiya
         
     # 2.5 IP SCAN
     ip_found = IP_PATTERN.search(user_input)
@@ -322,9 +326,8 @@ def Aeglis_master_scan(user_input):
         target_ip = ip_found.group(0)
         av_res = scan_alienvault(target_ip, "ip")
             
-        # BRANDING UPDATED
         intel_context.append(f"Aeglis Deep-Intel Network IP Check: {av_res}")
-        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context))
+        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang) # 👈 lang pass kiya
 
     # 3. TEXT SCAN (No URLs/IPs/Hashes found)
-    return scan_groq_ai(user_input, context_flag="No links or IPs detected. Pure text analysis.")
+    return scan_groq_ai(user_input, context_flag="No links or IPs detected. Pure text analysis.", lang=lang) # 👈 lang pass kiya
