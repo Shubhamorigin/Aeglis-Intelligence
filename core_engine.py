@@ -219,7 +219,7 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
     # 🚀 The Smart Language Mapper
     language_map = {
         "en": "English", "hi": "Hindi", "es": "Spanish",
-        "pt": "Portuguese", "id": "Indonesian", "ar": "Arabic"
+        "pt": "Portuguese", "in": "Indonesian", "ar": "Arabic"
     }
     target_language = language_map.get(lang, "English")
     
