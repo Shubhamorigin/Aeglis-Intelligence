@@ -642,7 +642,14 @@ async def deep_scan(
         
 @app.post("/get/history")
 async def get_history(request: Request, current_user_id: str = Depends(get_current_user)):
-    scan_res = supabase_admin.table('scans').select('id, input_data, risk_level, scanned_at, is_deleted, reason').eq('user_id', current_user_id).execute()
+    
+    # 🚀 FIX: .eq('is_deleted', False) add kar diya hai
+    scan_res = supabase_admin.table('scans')\
+        .select('id, input_data, risk_level, scanned_at, reason')\
+        .eq('user_id', current_user_id)\
+        .eq('is_deleted', False)\
+        .execute()
+        
     if scan_res.data:
         return {"status": "success", "history": scan_res.data}
     return {"status": "success", "history": []}
