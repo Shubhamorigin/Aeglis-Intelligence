@@ -77,7 +77,7 @@ class AeglisEngine:
             print(f"Gatekeeper error: {e}")
             return 8 # Default to high risk so it goes to VirusTotal if AI fails
 
-    async def analyze_file(self, file_path):
+    async def analyze_file(self, file_path, lang="en"): # 👈 lang accept kiya
         """Entry point: Checks local cache first, then external APIs, then deep autopsy."""
         mime = magic.Magic(mime=True)
         file_type = mime.from_file(file_path)
@@ -123,8 +123,8 @@ class AeglisEngine:
         elif "android" in file_type or file_path.endswith('.apk'):
             report.update(self._scan_apk(file_path))
         elif "image" in file_type:
-            # 🚀 Image scan is now Async to await the Vision API
-            image_report = await self._scan_image(file_path)
+            # 🚀 Image scan ke andar lang pass kar diya
+            image_report = await self._scan_image(file_path, lang=lang) 
             report.update(image_report)
         else:
             report.update(self._scan_generic(file_path))
@@ -198,9 +198,17 @@ class AeglisEngine:
             findings["error"] = f"APK Analysis Error: {str(e)}"
         return findings
 
-    # 🚨 NAYA FEATURE 2: THE VISION ENGINE (RAM SAVER) 🚨
-    async def _scan_image(self, path):
+    # 🚨 NAYA FEATURE 2: THE VISION ENGINE (RAM SAVER) 
+    async def _scan_image(self, path, lang="en"): # 👈 lang accept kiya
         """Image Forensics + Quant Hopper 4 Scout Vision Analysis"""
+        
+        # 🚀 Smart Language Mapper Vision AI ke liye
+        language_map = {
+            "en": "English", "hi": "Hindi", "es": "Spanish",
+            "pt": "Portuguese", "id": "Indonesian", "ar": "Arabic"
+        }
+        target_lang = language_map.get(lang, "English")
+
         findings = {"type": "AEGLIS_VISION_SCAN", "metadata": {}, "extracted_text": "", "threat_detected": False}
         try:
             # 1. Standard Forensics (Location Check)
@@ -216,12 +224,13 @@ class AeglisEngine:
                 base64_image = base64.b64encode(image_file.read()).decode('utf-8')
 
             # 3. Hit the Vision API
-            print("👁️ Sending Image to Quant Hopper 4 Scout...")
+            print("Sending Image to Quant Hopper 4 Scout...")
             chat_completion = await self.groq_client.chat.completions.create(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a scam detection AI. Extract text from the image and evaluate it for phishing or scams. Output JSON: {'extracted_text': '...', 'suspicion_score': 1-10, 'reason': '...'}"
+                        #  System prompt me lang inject kar diya
+                        "content": f"You are a scam detection AI. Extract text from the image and evaluate it for phishing or scams. Output JSON: {{'extracted_text': '...', 'suspicion_score': 1-10, 'reason': '...'}}. CRITICAL: Write the 'reason' field strictly in {target_lang}."
                     },
                     {
                         "role": "user",
@@ -244,6 +253,7 @@ class AeglisEngine:
             findings["error"] = f"Vision Engine Failed: {str(e)}"
         return findings
 
+    
     def _scan_generic(self, path):
         """Generic file scan: Regex based sensitive data extraction."""
         findings = {"type": "GENERIC_SCAN", "indicators": []}
