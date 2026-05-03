@@ -205,7 +205,7 @@ class AeglisEngine:
         # 🚀 Smart Language Mapper Vision AI ke liye
         language_map = {
             "en": "English", "hi": "Hindi", "es": "Spanish",
-            "pt": "Portuguese", "id": "Indonesian", "ar": "Arabic"
+            "pt": "Portuguese", "in": "Indonesian", "ar": "Arabic"
         }
         target_lang = language_map.get(lang, "English")
 
