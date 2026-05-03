@@ -234,7 +234,7 @@ async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
         "hi": "Hindi",
         "es": "Spanish",
         "pt": "Portuguese",
-        "id": "Indonesian",
+        "in": "Indonesian",
         "ar": "Arabic"
     }
     target_language = language_map.get(lang, "English") # Default English rahega
