@@ -437,7 +437,7 @@ async def get_my_profile(
                 # 📱 Step 4: B2C Logic (Aeglis Mobile App)
                 else:
                     filtered_profile["plan_type"] = raw_data.get("app_plan", "free")
-                    filtered_profile["credit"] = raw_data.get("app_credits", 0)
+                    filtered_profile["credits"] = raw_data.get("app_credits", 0)
                     # Notice: Yahan webhooks aur API usage skip kar diya taaki app light rahe!
 
                 # Final clean response return karo
