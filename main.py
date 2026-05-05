@@ -5,7 +5,7 @@ import json
 import time
 import secrets
 import uvicorn
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, APIRouter
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, APIRouter, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.concurrency import run_in_threadpool
@@ -403,19 +403,55 @@ async def native_google_login(payload: NativeGoogleAuth):
 
 
 
-    
-@app.post("/profile/me")
-async def get_my_profile(request: Request, user_id: str = Depends(get_current_user)):
+
+@app.post("/profile/me") 
+async def get_my_profile(
+    request: Request, 
+    user_id: str = Depends(get_current_user),
+    x_client_type: str = Header(default="b2c")  # 🔥 Header se frontend ka type pakda
+):
     try:
         for attempt in range(3):
-            user_res = supabase_admin.table('profiles').select('id, full_name, email, credits, plan_type, webhook_url, webhook_secret, monthly_api_usage').eq('id', user_id).execute()
+            # 🛠️ Step 1: Database se saara raw data utha lo (Naye columns ke sath)
+            columns = 'id, full_name, email, app_credits, app_plan, api_plan, webhook_url, webhook_secret, monthly_api_usage'
+            user_res = supabase_admin.table('profiles').select(columns).eq('id', user_id).execute()
+            
             if user_res.data:
-                return {"status": "success", "profile": user_res.data[0]}
-            await asyncio.sleep(0.5)
-        return JSONResponse(status_code=404, content={"detail": "Profile not found. Please try again later."})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"detail": "Database connection error"})
+                raw_data = user_res.data[0]
+                
+                # 🎨 Step 2: Base Profile (Jo dono dashboards ko chahiye)
+                filtered_profile = {
+                    "id": raw_data["id"],
+                    "full_name": raw_data["full_name"],
+                    "email": raw_data["email"]
+                }
+                
+                # 🏢 Step 3: B2B Logic (Dev Dashboard)
+                if x_client_type == "b2b":
+                    filtered_profile["plan_type"] = raw_data.get("api_plan", "free")
+                    filtered_profile["monthly_api_usage"] = raw_data.get("monthly_api_usage", 0)
+                    filtered_profile["webhook_url"] = raw_data.get("webhook_url")
+                    filtered_profile["webhook_secret"] = raw_data.get("webhook_secret")
+                    # Notice: Yahan humne 'credit' dictionary mein add hi nahi kiya!
+                    
+                # 📱 Step 4: B2C Logic (Aeglis Mobile App)
+                else:
+                    filtered_profile["plan_type"] = raw_data.get("app_plan", "free")
+                    filtered_profile["credit"] = raw_data.get("app_credits", 0)
+                    # Notice: Yahan webhooks aur API usage skip kar diya taaki app light rahe!
 
+                # Final clean response return karo
+                return {"status": "success", "profile": filtered_profile}
+                
+            await asyncio.sleep(0.5)
+            
+        return JSONResponse(status_code=404, content={"detail": "Profile not found. Please try again later."})
+        
+    except Exception as e:
+        print(f"Error: {e}") # Debugging ke liye console me print kar lena
+        return JSONResponse(status_code=500, content={"detail": "Database connection error"})
+        
+        
 
 # =====================================================================
 # 6. DEVELOPER B2B API & DASHBOARD ENDPOINTS
