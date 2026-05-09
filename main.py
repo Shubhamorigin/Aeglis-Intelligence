@@ -181,6 +181,10 @@ async def verify_consumer_origin(request: Request):
         "http://localhost:5502",
         "http://127.0.0.1:5502"
     ]
+    # Chrome Extension requests allow karo
+    if origin.startswith("chrome-extension://"):
+        return True
+        
     if origin not in allowed_origins:
         raise HTTPException(status_code=403, detail="Unauthorized: Restricted to official Aeglis UI.")
     return True
