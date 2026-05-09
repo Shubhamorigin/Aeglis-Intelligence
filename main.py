@@ -150,18 +150,18 @@ async def verify_and_deduct_credit(current_user_id: str = Depends(get_current_us
     
     try:
         # Check credits securely via Admin client
-        res = supabase_admin.table("profiles").select("credits").eq("id", current_user_id).execute()
+        res = supabase_admin.table("profiles").select("app_credits").eq("id", current_user_id).execute()
         
         if not res.data:
             raise HTTPException(status_code=404, detail="User profile not found in database.")
             
-        current_credits = res.data[0]["credits"]
+        current_credits = res.data[0]["app_credits"]
         
         if current_credits <= 0:
             raise HTTPException(status_code=402, detail="Credits expired. Please upgrade your plan.")
             
         # Deduct 1 credit
-        supabase_admin.table("profiles").update({"credits": current_credits - 1}).eq("id", current_user_id).execute()
+        supabase_admin.table("profiles").update({"app_credits": current_credits - 1}).eq("id", current_user_id).execute()
         
         return current_user_id
     except HTTPException:
@@ -205,11 +205,11 @@ async def verify_developer_key(authorization: str = Depends(api_key_header)) -> 
     dev_user_id = res.data[0]["user_id"]
     
     # Check Plan Limits
-    prof_res = supabase_admin.table("profiles").select("monthly_api_usage, plan_type").eq("id", dev_user_id).execute()
+    prof_res = supabase_admin.table("profiles").select("monthly_api_usage, api_plan").eq("id", dev_user_id).execute()
     if prof_res.data:
         profile = prof_res.data[0]
         usage = profile.get("monthly_api_usage", 0)
-        plan = (profile.get("plan_type") or "free").lower()
+        plan = (profile.get("api_plan") or "free").lower()
 
         PLAN_LIMITS = {"free": 100, "startup": 10000, "enterprise": 50000}
         limit = PLAN_LIMITS.get(plan, 100)
