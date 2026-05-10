@@ -15,4 +15,5 @@ slowapi
 supabase
 uvicorn
 beautifulsoup4
+playwright
 
