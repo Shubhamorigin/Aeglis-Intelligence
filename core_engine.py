@@ -213,6 +213,47 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
     
     return {"risk_level": "ERROR", "reason": "AI Brain is unresponsive.", "type": "TEXT"}
 
+
+def scan_alienvault(indicator: str, indicator_type: str = "file"):
+    """
+    Checks AlienVault OTX (100% FREE). 
+    indicator_type can be 'file' (hash), 'url', or 'ip'.
+    """
+    # 🚨 THE FIX: AlienVault API understands 'IPv4', not 'ip'
+    api_indicator_type = indicator_type
+    if indicator_type == "ip":
+        api_indicator_type = "IPv4"
+
+    # Ab URL ekdum sahi banega: /indicators/IPv4/106.55.164.91/general
+    OTX_URL = f"https://otx.alienvault.com/api/v1/indicators/{api_indicator_type}/{indicator}/general"
+    
+    try:
+        response = requests.get(OTX_URL)
+        if response.status_code == 200:
+            data = response.json()
+            pulse_info = data.get("pulse_info", {})
+            pulse_count = pulse_info.get("count", 0)
+            
+            # SMART THRESHOLD LOGIC
+            if indicator_type == "url" and pulse_count >= 5:
+                return {
+                    "risk_level": "DANGER",
+                    "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # BRANDING
+                    "type": "Aeglis_DEEP_INTEL"
+                }
+            elif indicator_type != "url" and pulse_count > 0:
+                return {
+                    "risk_level": "DANGER",
+                    "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # BRANDING
+                    "type": "AEglis_DEEP_INTEL"
+                }
+                
+        return {"risk_level": "SAFE", "reason": "No major threat records found on Aeglis Deep-Intel Network.", "type": "Aeglis_DEEP_INTEL"}
+    except Exception as e:
+        print(f"AlienVault API Error: {e}")
+        return None
+        
+
 # --- THE MASTER ROUTER (WATERFALL MODEL) ---
 def Aeglis_master_scan(user_input, lang="en"):
     """Main routing engine that gathers ALL intel and passes it to the AI."""
