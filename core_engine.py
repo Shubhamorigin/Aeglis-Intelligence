@@ -287,8 +287,14 @@ def Aeglis_master_scan(user_input, lang="en"):
             intel_context.append("Notice: A shortened URL was detected and unmasked to reveal its true destination.")
             
         # INSTANT WHITELIST CHECK
-        if pure_domain in MASTER_WHITELIST:
+       # INSTANT WHITELIST CHECK
+        if pure_domain in MASTER_WHITELIST or is_domain_whitelisted(target_url):
             intel_context.append(f"Domain '{pure_domain}' is verified by Aeglis Zero-Latency Trust.")
+            
+            # PRO-FIX: Agar domain trusted hai aur user ne sirf URL bheja hai, 
+            # toh AI aur Sandbox ka time/credit waste mat karo, direct SAFE return kar do.
+            if len(user_input) <= len(target_url) + 5: 
+                return {"risk_level": "SAFE", "reason": "Verified Trusted Domain (Aeglis Zero-Latency Trust).", "type": "AEGLIS_WHITELIST"}
         else:
             # WEBRISK BLACKLIST CHECK
             webrisk_res = scan_webrisk(target_url)
