@@ -14,4 +14,5 @@ requests
 slowapi
 supabase
 uvicorn
+beautifulsoup4
 
