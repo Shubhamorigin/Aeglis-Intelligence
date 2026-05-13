@@ -1,10 +1,20 @@
 import asyncio
 import os
-import shutil
+import sys
+import requests
+import httpx
+# Windows + Playwright/asyncio event-loop compatibility
+if sys.platform == "win32":
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
+
 import json
 import time
 import secrets
 import uvicorn
+
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, BackgroundTasks, APIRouter, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -22,7 +32,7 @@ from groq import AsyncGroq
 
 # Our specialized analysis engines
 from scanner_engine import AeglisEngine
-from core_engine import Aeglis_master_scan, save_to_cache
+from core_engine import Aeglis_master_scan
 from security_engine import generate_new_api_key, hash_api_key
 from webhook_engine import dispatch_webhook
 
@@ -34,9 +44,6 @@ load_dotenv()
 app = FastAPI(
     title="Aeglis API v3",
     description="The Ultimate Hybrid AI Security Engine (Consumer + Developer B2B)",
-    docs_url=None,   # disables /docs
-    redoc_url=None,  # disables /redoc
-    openapi_url=None # disables /openapi.json
 )
 
 
@@ -120,50 +127,61 @@ async def get_current_user(request: Request) -> str:
     token = auth[7:]
     
     try:
-        # 🚀 THE UPGRADE: Agar Kotlin background service se Device Key aayi hai
-        if token.startswith("aeglis_dev_"):
-            # Supabase database query: Check if this device key exists and belongs to a user
-            response = supabase.table("device_tokens").select("user_id").eq("key", token).execute()
+        # Only normal JWT will be accepted.
+        user = supabase.auth.get_user(token)
+        if not user.user:
+            raise HTTPException(status_code=401, detail="Invalid JWT token")
+        return user.user.id
             
-            # Agar array empty hai, matlab key invalid ya delete ho chuki hai
-            if not response.data:
-                raise HTTPException(status_code=401, detail="Invalid or Revoked Device Key")
-                
-            # Key valid hai! Database se direct user_id return kar do
-            return response.data[0]["user_id"]
-            
-        # 🛡️ THE ORIGINAL: Agar frontend web se normal JWT aaya hai
-        else:
-            user = supabase.auth.get_user(token)
-            if not user.user:
-                raise HTTPException(status_code=401, detail="Invalid JWT token")
-            return user.user.id
             
     except Exception as e:
         # Backend terminal mein print karna zaroori hai debugging ke liye
         print(f"Auth Blocked: {str(e)}") 
         raise HTTPException(status_code=401, detail="Token verification failed")
 
-async def verify_and_deduct_credit(current_user_id: str = Depends(get_current_user)) -> str:
-    """Combines JWT verification with Credit check and deduction (For B2C)"""
-    if not supabase: return current_user_id # Bypass if local testing
-    
+async def verify_user_has_credits(current_user_id: str) -> None:
+    """Checks credits existence for B2C, BUT does not deduct.
+
+    Deduction is done at the end of a successful scan flow.
+    """
+    if not supabase:
+        return  # local testing bypass
+
     try:
-        # Check credits securely via Admin client
         res = supabase_admin.table("profiles").select("app_credits").eq("id", current_user_id).execute()
-        
         if not res.data:
             raise HTTPException(status_code=404, detail="User profile not found in database.")
-            
-        current_credits = res.data[0]["app_credits"]
-        
+
+        current_credits = res.data[0].get("app_credits", 0)
         if current_credits <= 0:
             raise HTTPException(status_code=402, detail="Credits expired. Please upgrade your plan.")
-            
-        # Deduct 1 credit
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Credit System Error (verify_user_has_credits): {e}")
+        raise HTTPException(status_code=500, detail="Credit verification failed.")
+
+
+async def deduct_user_credit(current_user_id: str) -> None:
+    """Deduct 1 credit after full successful processing (B2C only)."""
+    if not supabase:
+        return
+
+    try:
+        res = supabase_admin.table("profiles").select("app_credits").eq("id", current_user_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="User profile not found in database.")
+
+        current_credits = res.data[0].get("app_credits", 0)
+        if current_credits <= 0:
+            raise HTTPException(status_code=402, detail="Credits expired. Please upgrade your plan.")
+
         supabase_admin.table("profiles").update({"app_credits": current_credits - 1}).eq("id", current_user_id).execute()
-        
-        return current_user_id
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Credit System Error (deduct_user_credit): {e}")
+        raise HTTPException(status_code=500, detail="Credit deduction failed.")
     except HTTPException:
         raise
     except Exception as e:
@@ -182,7 +200,7 @@ async def verify_consumer_origin(request: Request):
         "http://127.0.0.1:5502"
     ]
     # Chrome Extension requests allow karo
-    if origin.startswith("chrome-extension://"):
+    if origin and origin.startswith("chrome-extension://"):
         return True
         
     if origin not in allowed_origins:
@@ -468,9 +486,7 @@ async def developer_scan(request: Request, payload: B2BScanRequest, dev_user_id:
     """B2B Endpoint: Secured by API Key"""
     start_time = time.time()
     try:
-        core_result = await run_in_threadpool(Aeglis_master_scan, payload.input_text)
-        if core_result.get("risk_level") == "DANGER" and core_result.get("type") != "CACHED_RESULT":
-            await run_in_threadpool(save_to_cache, payload.input_text, "DANGER", "Aeglis B2B API Engine")
+        core_result = await Aeglis_master_scan(payload.input_text)
             
         await log_api_call(dev_user_id, "/v3/api/scan", 200, start_time, core_result.get("risk_level"), payload.end_user_id)
         return {"status": "success", "data": core_result}
@@ -566,46 +582,137 @@ def health_check():
 @limiter.limit("10/minute")
 async def scan_text(
     request: Request, # FIX: SlowAPI needs request object first
-    payload: TextScanPayload, 
-    current_user_id: str = Depends(verify_and_deduct_credit), # FIX: Secured Token extraction
+    payload: TextScanPayload,
+    current_user_id: str = Depends(get_current_user),
     _: bool = Depends(verify_consumer_origin)
 ):
     try:
+        await verify_user_has_credits(current_user_id)
         # 🚀 FIX: payload.lang ko Aeglis_master_scan mein bhej diya
-        core_result = await run_in_threadpool(Aeglis_master_scan, payload.input_text, payload.lang)
-
-        if core_result.get("risk_level") == "DANGER" and core_result.get("type") != "CACHED_RESULT":
-            await run_in_threadpool(save_to_cache, payload.input_text, "DANGER", "Aeglis AI Multi Intelligence")
+        core_result = await Aeglis_master_scan(payload.input_text, payload.lang)
             
         if supabase:
             supabase_admin.table("scans").insert({
                 "user_id": current_user_id,
-                "input_type": "TEXT/URL",
+                "input_type": core_result.get('type', 'TEXT'), # FIX: type field ko safely access karna
                 "input_data": payload.input_text[:250],
                 "risk_level": core_result.get("risk_level"),
                 "reason": core_result.get("reason", "Analyzed by Aeglis Intelligence")
             }).execute()
 
+        # ---- B2C Credit Deduction (after scan complete; fail-safe) ----
+        free_scan_types = ["AEGLIS_WHITELIST"]
+        scan_type = core_result.get("type")
+        if scan_type not in free_scan_types:   
+            # Deduct only when we are sure scan result is produced.
+            await deduct_user_credit(current_user_id)
+
+
+
+
         return {"status": "success", "data": core_result}
-        
-    except HTTPException as e: raise e
+
+
+    except HTTPException as e:
+        raise e
     except Exception as e:
+        # Log real error so we can identify the crash source (scan engine vs DB insert vs other)
+        print(f"❌ /scan runtime error: {repr(e)}")
         raise HTTPException(status_code=500, detail="Text Scan Engine Failure")
+
     
+class InterceptScanPayload(BaseModel):
+    url: str
+    filename: str | None = None
+    lang: str = "en"
+
+
+@app.post("/scan/intercept")
+@limiter.limit("5/minute")
+async def scan_intercept(
+    request: Request,
+    payload: InterceptScanPayload,
+    current_user_id: str = Depends(get_current_user),
+    _: bool = Depends(verify_consumer_origin)
+):
+    """B2C Endpoint: Extension intercept downloads URL and asks backend to scan."""
+    
+    await verify_user_has_credits(current_user_id)
+
+    if not payload.url or not payload.url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Invalid url")
+
+    os.makedirs("temp_uploads", exist_ok=True) # Cleaner way to create dir
+
+    original_name = (payload.filename or "intercept_file").replace("/", "_").replace("\\", "_")
+    temp_path = f"temp_uploads/intercept_{secrets.token_hex(8)}_{original_name}"
+
+    total_read = 0
+    max_bytes = 50 * 1024 * 1024 # 50MB in bytes
+
+    try:
+        # Use httpx.AsyncClient to prevent event loop blocking
+        async with httpx.AsyncClient(verify=False) as client:
+            async with client.stream("GET", payload.url, timeout=15.0) as response:
+                
+                # 1. Handle Private/Unauthorized Files
+                if response.status_code in (401, 403):
+                    msg = (
+                        "Aeglis Alert: Private file detected. We cannot scan this automatically. "
+                        "Please upload it manually to the Web Dashboard if suspicious."
+                    )
+                    raise HTTPException(status_code=403, detail=msg)
+
+                # 2. Handle Other HTTP Errors
+                if response.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"Failed to fetch file. Status: {response.status_code}")
+
+                # 3. Stream and Save Chunk by Chunk
+                with open(temp_path, "wb") as f:
+                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
+                        total_read += len(chunk)
+                        if total_read > max_bytes:
+                            raise HTTPException(status_code=413, detail="File too large. Maximum 50MB allowed.")
+                        f.write(chunk)
+
+        # 4. Scan saved file locally
+        file_report = await engine.analyze_file(temp_path, lang=payload.lang)
+
+        # 5. Credit deduction after success
+        await deduct_user_credit(current_user_id)
+
+        return {"status": "success", "data": file_report}
+
+    except HTTPException:
+        raise # Re-raise HTTP exceptions so FastAPI handles them
+
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Scan intercept failed: {str(e)}")
+
+    finally:
+        # 🧹 The Ultimate Cleanup: This block runs NO MATTER WHAT (success or fail)
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_err:
+                print(f"Failed to clean up temp file {temp_path}: {cleanup_err}")
+
+
 @app.post("/deep-scan")
 @limiter.limit("5/minute")
 async def deep_scan(
     request: Request,
     file: UploadFile = File(...),
     input_text: str = Form(None),
-    lang: str = Form("en"), 
-    current_user_id: str = Depends(verify_and_deduct_credit),
+    lang: str = Form("en"),
+    current_user_id: str = Depends(get_current_user),
     _: bool = Depends(verify_consumer_origin)
 ):
     if not os.path.exists("temp_uploads"): os.makedirs("temp_uploads")
     temp_path = f"temp_uploads/{file.filename}"
     
     try:
+        await verify_user_has_credits(current_user_id)
         file_size = 0
         with open(temp_path, "wb") as buffer:
             while chunk := await file.read(1024 * 1024):
@@ -633,12 +740,6 @@ async def deep_scan(
         risk_level = ai_res.get("risk_level", "WARNING")
         reason = ai_res.get("reason", "Analyzed by Aeglis Intelligence")
 
-        # 4. AUTO-SAVE TO CACHE
-        if risk_level == "DANGER" and file_report.get("file_hash"):
-            is_already_cached = file_report.get("global_reputation", {}).get("type") == "CACHED_RESULT"
-            if not is_already_cached:
-                await run_in_threadpool(save_to_cache, file_report["file_hash"], "DANGER", "Aeglis Deep Engine Autopsy")
-
         # 5. Save to Database History
         if supabase:
             try:
@@ -662,6 +763,8 @@ async def deep_scan(
                 # Agar DB fat bhi gaya, tab bhi user ko result dikhega!
 
         if os.path.exists(temp_path): os.remove(temp_path)
+        
+        await deduct_user_credit(current_user_id)
 
         return {
             "status": "success",

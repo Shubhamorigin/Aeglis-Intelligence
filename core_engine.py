@@ -3,10 +3,95 @@ import os
 import requests
 import json
 import csv
+import hashlib
+import threading
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 from utils.supabase_db import supabase_admin
-from scan_url import run_url_scanner  # Injecting the Playwright Sandbox
+from scan_url import run_url_scanner
+
+from datetime import datetime
+import whois
+import redis
+
+# ── REDIS SETUP ───────────────────────────────────────────────────────
+REDIS_CLIENT = None
+try:
+    # Use Upstash/Redis URL (preferred)
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        raise ValueError("REDIS_URL is not set")
+
+    REDIS_CLIENT = redis.from_url(
+        redis_url,
+        decode_responses=True,
+        socket_connect_timeout=2,
+    )
+    REDIS_CLIENT.ping()
+    print("✅ Redis connected.")
+except Exception as _re:
+    print(f"⚠️ Redis unavailable: {_re}. Supabase cache will be used.")
+    REDIS_CLIENT = None
+
+REDIS_TTL = {
+    "SAFE":    86400,   # 24 ghante
+    "DANGER":  604800,  # 7 din
+    "WARNING": 43200,   # 12 ghante
+}
+
+ALL_LANGUAGES  = ["en", "hi", "ar", "es", "pt", "in"]
+LANGUAGE_NAMES = {
+    "en": "English", "hi": "Hindi",   "ar": "Arabic",
+    "es": "Spanish", "pt": "Portuguese", "in": "Indonesian"
+}
+
+
+
+
+
+# Cache WHOIS results to reduce repeated lookups during high traffic
+_DOMAIN_AGE_CACHE = {}
+
+def get_domain_age(domain: str) -> int:
+    """Return domain age in days using WHOIS.
+
+    - If creation date missing/WHOIS fails => returns -1
+    - Handles creation_date being datetime or list[datetime]
+    """
+    if not domain:
+        return -1
+
+    domain = domain.strip().lower().strip('.')
+    if not domain:
+        return -1
+
+    if domain in _DOMAIN_AGE_CACHE:
+        return _DOMAIN_AGE_CACHE[domain]
+
+    try:
+        w = whois.whois(domain)
+        created = getattr(w, 'creation_date', None)
+
+        if isinstance(created, list):
+            created = created[0] if created else None
+
+        if not created:
+            _DOMAIN_AGE_CACHE[domain] = -1
+            return -1
+
+        # Some whois libs may return strings
+        if not isinstance(created, datetime):
+            created = datetime.fromisoformat(str(created).split(' ')[0])
+
+        age_days = (datetime.now() - created).days
+        _DOMAIN_AGE_CACHE[domain] = age_days
+        return age_days
+    except Exception:
+        _DOMAIN_AGE_CACHE[domain] = -1
+        return -1
+
+
+
 
 # 1. Load Environment Variables
 load_dotenv()
@@ -42,19 +127,77 @@ def load_master_whitelist(filepath="white_listed.csv", limit=10000):
     except Exception as e:
         print(f"Error loading whitelist: {e}")
 
-def extract_pure_domain_from_user_input(url):
+def extract_pure_domain_from_user_input(url: str) -> str:
+    """Extracts domain from either:
+      - full URL: https://gemini.google.com/path
+      - host-only: gemini.google.com
+
+    Returns lowercase domain without www.
+    """
     try:
-        if not url.startswith(("http://", "https://")):
-            url = "https://" + url
-        domain = urlparse(url).netloc
-        return domain.replace("www.", "").lower()
-    except:
+        s = (url or "").strip()
+        if not s:
+            return ""
+
+        # Remove common trailing punctuation/brackets accidentally captured from text.
+        s = s.rstrip(",.;:!?)]}")
+
+        # If scheme missing, urlparse() treats it as path; so prepend scheme.
+        if not s.startswith(("http://", "https://")):
+            s = "https://" + s
+
+        parsed = urlparse(s)
+        domain = (parsed.netloc or "").strip().lower()
+
+        # Fallback: if netloc still empty, treat original token as domain.
+        if not domain:
+            domain = (url or "").strip().lower().rstrip(",.;:!?)]}")
+
+        return domain.replace("www.", "")
+    except Exception:
         return ""
+
+
+def get_base_domain(domain: str) -> str:
+    """Best-effort base-domain extraction.
+
+    Examples:
+      - gemini.google.com -> google.com
+      - mail.google.co.uk -> google.co.uk
+    """
+    if not domain:
+        return ""
+
+    domain = domain.lower().strip(".")
+    parts = [p for p in domain.split(".") if p]
+    if len(parts) <= 2:
+        return domain
+
+    # Common 2-label public suffixes where we need 3 labels total
+    two_label_suffixes = {
+        "co.uk", "org.uk", "ac.uk", "gov.uk",
+        "com.au", "net.au", "org.au", "edu.au",
+        "co.in", "org.in", "ac.in",
+        "com.br", "com.ar", "com.mx",
+        "co.jp", "or.jp", "ne.jp",
+        "com.sg", "net.sg",
+        "com.tr", "net.tr",
+    }
+
+    last2 = ".".join(parts[-2:])
+    last3 = ".".join(parts[-3:])
+
+    if last2 in two_label_suffixes and len(parts) >= 3:
+        return last3
+
+    return ".".join(parts[-2:])
 
 # Server start hote hi file load kar lo
 load_master_whitelist("white_listed.csv", limit=100000)
-URL_PATTERN = re.compile(r'https?://[^\s<>"]+|www\.[^\s<>"]+')
-IP_PATTERN = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+URL_PATTERN = re.compile(
+    r'(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
+)
+
 
 def unmask_short_url(url):
     """Follows redirects to find the real destination URL."""
@@ -77,30 +220,114 @@ def is_valid_hash(text):
     text = text.strip()
     return len(text) in [32, 40, 64] and text.isalnum()
 
-# --- CACHE LOGIC (Save & Read) ---
-def check_local_cache(indicator):
+# ── REDIS HELPERS ─────────────────────────────────────────────────────
+
+def get_redis_base_key(user_input: str) -> str:
+    """
+    URL → base domain se key
+    Text/hash → MD5 hash se key
+    """
+    url_match = URL_PATTERN.search(user_input.strip()) if 'URL_PATTERN' in globals() else None
+    if url_match:
+        domain = extract_pure_domain_from_user_input(url_match.group(0))
+        base   = get_base_domain(domain)
+        return f"scan:{base or domain}"
+    text_hash = hashlib.md5(user_input.strip().lower().encode()).hexdigest()
+    return f"scan:text:{text_hash}"
+
+def redis_get(base_key: str, lang: str) -> dict | None:
+    if not REDIS_CLIENT:
+        return None
     try:
-        res = supabase_admin.table("threat_cache").select("*").eq("indicator", indicator).execute()
-        if res.data:
-            return {
-                "risk_level": res.data[0]["threat_type"],
-                "reason": f"Aeglis Global Cache: Previously flagged by '{res.data[0]['detected_by']}'.",
-                "type": "CACHED_RESULT"
-            }
+        val = REDIS_CLIENT.get(f"{base_key}:{lang}")
+        if val:
+            print(f"✅ Redis HIT: {base_key}:{lang}")
+            return json.loads(val)
     except Exception as e:
-        print(f"Cache Read Error: {e}")
+        print(f"⚠️ Redis GET error: {e}")
     return None
 
-def save_to_cache(indicator, threat_type, detected_by="Aeglis System"):
+def redis_set(base_key: str, lang: str, risk_level: str, reason: str):
+    if not REDIS_CLIENT:
+        return
     try:
-        supabase_admin.table("threat_cache").upsert({
-            "indicator": indicator,
-            "threat_type": threat_type,
-            "detected_by": detected_by
-        }).execute()
-        print(f"Indicator Cached: {indicator}")
+        ttl = REDIS_TTL.get(risk_level, 86400)
+        REDIS_CLIENT.setex(
+            f"{base_key}:{lang}",
+            ttl,
+            json.dumps({"risk_level": risk_level, "reason": reason})
+        )
+        print(f"💾 Redis SET: {base_key}:{lang} | TTL:{ttl}s")
     except Exception as e:
-        print(f"Cache Save Error: {e}")
+        print(f"⚠️ Redis SET error: {e}")
+
+def translate_reason_sync(reason_en: str, lang: str) -> str:
+    """English reason ko target language mein translate karo — sirf reason, risk_level nahi."""
+    if lang == "en" or not reason_en:
+        return reason_en
+    target_lang = LANGUAGE_NAMES.get(lang, "English")
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{
+                    "role": "user",
+                    "content": (
+                        f"Translate this cybersecurity warning to {target_lang}. "
+                        f"Return ONLY the translated text, no quotes, no explanation:\n\n{reason_en}"
+                    )
+                }],
+                "temperature": 0.1,
+                "max_tokens": 200
+            },
+            timeout=15
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"⚠️ Translate error ({lang}): {e}")
+    return reason_en  # fallback
+
+def background_translate_and_cache(base_key: str, risk_level: str, reason_en: str, skip_lang: str):
+    """
+    Daemon thread mein baaki 5 languages translate karke Redis mein store karo.
+    skip_lang = jo pehle se store ho chuka hai (user ka requested lang)
+    """
+    for lang in ALL_LANGUAGES:
+        if lang == skip_lang:
+            continue
+        try:
+            translated = translate_reason_sync(reason_en, lang)
+            redis_set(base_key, lang, risk_level, translated)
+        except Exception as e:
+            print(f"⚠️ Background translate failed ({lang}): {e}")
+
+def _save_to_redis_and_background_translate(base_key: str, risk_level: str, reason_en: str, user_lang: str) -> str:
+    """
+    1. English Redis mein store karo
+    2. User ki lang agar en nahi → translate + store
+    3. Baaki 5 languages → background thread
+    Returns: reason in user_lang
+    """
+    # English store
+    redis_set(base_key, "en", risk_level, reason_en)
+
+    user_reason = reason_en
+    if user_lang != "en":
+        user_reason = translate_reason_sync(reason_en, user_lang)
+        redis_set(base_key, user_lang, risk_level, user_reason)
+
+    # Background mein baaki languages
+    t = threading.Thread(
+        target=background_translate_and_cache,
+        args=(base_key, risk_level, reason_en, user_lang),
+        daemon=True
+    )
+    t.start()
+
+    return user_reason
 
 # --- API WORKERS (The Detectives) ---
 def scan_virustotal(file_hash):
@@ -173,21 +400,25 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     
     prompt = f"""
-    You are 'Aeglis', an elite AI cybersecurity guard. 
-    Analyze the following user input and context for scams, phishing, or social engineering.
-    
-    [THREAT INTELLIGENCE & SANDBOX CONTEXT]
-    Previous Scanners found: {context_flag if context_flag else "No external intel. Rely on text analysis."}
-    
-    STRICT RULES (CRITICAL):
-    1. BRANDING: You MUST NEVER mention 'Google', 'VirusTotal', 'Playwright', or 'WebRisk'. Always attribute findings to 'Aeglis SafeLink Engine', 'Aeglis Dynamic Sandbox', or 'Aeglis Autopsy Sandbox'.
-    2. ZERO-DAY SOCIAL ENGINEERING: If the 'Aeglis Dynamic Sandbox Text' contains unrealistic financial promises (e.g., "get free money", "download to earn Rs", "lottery winner"), fake crypto giveaways, or urgent panic manipulation, you MUST flag it as 'DANGER', even if SafeLink says SAFE.
-    3. PHISHING: If the text attempts to mimic a login portal for a bank or service but the domain is suspicious, flag as 'DANGER'.
-    4. WHITELIST SAFEGUARD: If the report says the domain is WHITELISTED, do NOT flag the link unless the message text itself is highly malicious.
-    5. CRITICAL TRANSLATION: You MUST write the "reason" field strictly in {target_language}. Do not output the reason in any other language.
-    
-    Reply ONLY in this JSON format: {{"risk_level": "DANGER" | "SAFE" | "WARNING", "reason": "2-3 lines explaining the final verdict to the user."}}
-    """
+You are 'Aeglis', an elite AI cybersecurity guard.
+Analyze the following user input and context for scams, phishing, or social engineering.
+
+[THREAT INTELLIGENCE & SANDBOX CONTEXT]
+Previous Scanners found: {context_flag if context_flag else "No external intel. Rely on text analysis."}
+
+STRICT RULES — OVERRIDE EVERYTHING (Domain Age + Redirect):
+1. Domain age rule:
+   - If context contains "Very new domain (< 7 days)" => at least risk_level="WARNING".
+   - If context also contains ANY other suspicious signal (Redirect chain/JS Behavior/Sandbox Page Text with login/OTP/fake money) => ALWAYS return risk_level="DANGER".
+2. Redirect rule: If context contains "Redirect chain" => at least risk_level="WARNING".
+3. Whitelist rule: If context contains "verified by Aeglis Zero-Latency Trust" or "WHITELISTED" => return risk_level="SAFE" unless context also contains strong malicious cues (credentials lure/OTP theft/fake money/lottery/urgent panic).
+4. ZERO-DAY social engineering: If context contains fake money promises (free money / lottery winner / download to earn / fake giveaway) => ALWAYS return risk_level="DANGER".
+5. BRANDING: You MUST NEVER mention 'Google', 'VirusTotal', 'Playwright', or 'WebRisk'. Always attribute findings to 'Aeglis SafeLink Engine', 'Aeglis Dynamic Sandbox', or 'Aeglis Autopsy Sandbox'.
+6. CRITICAL TRANSLATION: reason MUST be in {target_language} only. Do not output the reason in any other language.
+
+Reply ONLY in this JSON format:
+{{"risk_level": "DANGER"|"WARNING"|"SAFE", "reason": "2-3 lines explaining the final verdict to the user."}}
+"""
     
     payload = {
         "model": "llama-3.3-70b-versatile",
@@ -214,15 +445,12 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
     return {"risk_level": "ERROR", "reason": "AI Brain is unresponsive.", "type": "TEXT"}
 
 
-def scan_alienvault(indicator: str, indicator_type: str = "file"):
-    """
-    Checks AlienVault OTX (100% FREE). 
-    indicator_type can be 'file' (hash), 'url', or 'ip'.
-    """
+def scan_alienvault(indicator: str, indicator_type: str = "file"): 
+    """Checks AlienVault OTX (100% FREE) for file hashes or URLs."""
+
     # 🚨 THE FIX: AlienVault API understands 'IPv4', not 'ip'
     api_indicator_type = indicator_type
-    if indicator_type == "ip":
-        api_indicator_type = "IPv4"
+
 
     # Ab URL ekdum sahi banega: /indicators/IPv4/106.55.164.91/general
     OTX_URL = f"https://otx.alienvault.com/api/v1/indicators/{api_indicator_type}/{indicator}/general"
@@ -255,71 +483,255 @@ def scan_alienvault(indicator: str, indicator_type: str = "file"):
         
 
 # --- THE MASTER ROUTER (WATERFALL MODEL) ---
-def Aeglis_master_scan(user_input, lang="en"):
-    """Main routing engine that gathers ALL intel and passes it to the AI."""
+async def scan_groq_visual_for_phishing(screenshot_b64: str, target_url: str, lang: str = "en"):
+    """Runs a Groq vision check to catch visual-only phishing (e.g., fake SBI/HDFC UI)."""
+    language_map = {
+        "en": "English",
+        "hi": "Hindi",
+        "es": "Spanish",
+        "pt": "Portuguese",
+        "in": "Indonesian",
+        "ar": "Arabic",
+    }
+    target_language = language_map.get(lang, "English")
+
+    if not GROQ_API_KEY:
+        return {"risk_level": "ERROR", "reason": "Aeglis Intelligence Key missing.", "type": "VISUAL"}
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    prompt = f"""
+You are a cybersecurity analyst for visual phishing detection.
+URL: {target_url}
+
+Check if screenshot visually impersonates ANY known brand:
+- Indian banks: SBI, HDFC, ICICI, Axis, Kotak, PNB
+- Payment: PayPal, Paytm, PhonePe, Google Pay, UPI
+- Global: Amazon, Facebook, Google, Apple, Microsoft, Netflix
+- Indian govt: IRCTC, Income Tax, UIDAI/Aadhar, EPFO
+
+RULES:
+1. Brand UI + mismatched domain → DANGER
+2. Fake login/OTP/payment form + unknown domain → DANGER  
+3. Clearly normal site → SAFE
+4. Uncertain → WARNING
+
+Return ONLY: {{"risk_level": "SAFE"|"WARNING"|"DANGER", "reason": "..."}}
+Reason must be in {target_language}.
+"""
+
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "You are a professional cybersecurity expert responding strictly in JSON."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"},
+                    },
+                ],
+            },
+        ],
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            result = json.loads(response.json()["choices"][0]["message"]["content"])
+            return {
+                "risk_level": result.get("risk_level", "WARNING"),
+                "reason": result.get("reason", "Analyzed by visual AI."),
+                "type": "VISUAL_AGGREGATED",
+            }
+    except Exception as e:
+        print(f"⚠️ Groq Vision Error: {e}")
+
+    return {"risk_level": "WARNING", "reason": "Visual analysis failed, but URL context may still be suspicious.", "type": "VISUAL"}
+
+async def Aeglis_master_scan(user_input, lang="en"):
+
     user_input = user_input.strip()
 
-    # Step 0: Check Local Cache First (Cost: $0)
-    cached = check_local_cache(user_input)
-    if cached: 
-        print("Stopped by Aeglis Global Cache!")
-        return cached
-        
+    # ── STEP 0A: REDIS CHECK (RAM se — sabse fast) ────────────────────
+    base_key = get_redis_base_key(user_input)
+
+    redis_cached = redis_get(base_key, lang)
+    if redis_cached:
+        return {
+            "risk_level": redis_cached["risk_level"],
+            "reason":     redis_cached["reason"],
+            "type":       "CACHED_RESULT"
+        }
+
+    # User ki lang nahi mili — English check karo
+    if lang != "en":
+        redis_en = redis_get(base_key, "en")
+        if redis_en:
+            translated = translate_reason_sync(redis_en["reason"], lang)
+            redis_set(base_key, lang, redis_en["risk_level"], translated)
+            return {
+                "risk_level": redis_en["risk_level"],
+                "reason":     translated,
+                "type":       "CACHED_RESULT"
+            }
+
     intel_context = []
-    
-    # 1. HASH SCAN
+
+    # ── INPUT TYPE DETECT ─────────────────────────────────────────────
+    url_found    = URL_PATTERN.search(user_input)
+    has_url      = bool(url_found)
+    is_pure_url  = has_url and len(user_input.strip()) <= len(url_found.group(0)) + 5
+    is_mixed     = has_url and not is_pure_url
+    is_pure_text = not has_url and not is_valid_hash(user_input)
+
+    print(f"Input type → pure_url={is_pure_url} | mixed={is_mixed} | pure_text={is_pure_text}")
+
+    # ── 1. HASH SCAN ──────────────────────────────────────────────────
     if is_valid_hash(user_input):
         vt_res = scan_virustotal(user_input)
         intel_context.append(f"Aeglis Autopsy Sandbox: {vt_res}")
-        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang)
-        
-    # 2. URL SCAN (With Dynamic Sandbox Integration)
-    url_found = URL_PATTERN.search(user_input)
-    if url_found:
-        target_url = url_found.group(0)
-        pure_domain = extract_pure_domain_from_user_input(target_url)
-        
-        KNOWN_SHORTENERS = {"bit.ly", "tinyurl.com", "t.co", "is.gd", "buff.ly", "ow.ly", "cutt.ly", "rebrand.ly", "shorturl.at"}
-        
-        if pure_domain in KNOWN_SHORTENERS:
-            target_url = unmask_short_url(target_url)
-            pure_domain = extract_pure_domain_from_user_input(target_url) 
-            intel_context.append("Notice: A shortened URL was detected and unmasked to reveal its true destination.")
-            
-        # INSTANT WHITELIST CHECK
-       # INSTANT WHITELIST CHECK
-        if pure_domain in MASTER_WHITELIST or is_domain_whitelisted(target_url):
-            intel_context.append(f"Domain '{pure_domain}' is verified by Aeglis Zero-Latency Trust.")
-            
-            # PRO-FIX: Agar domain trusted hai aur user ne sirf URL bheja hai, 
-            # toh AI aur Sandbox ka time/credit waste mat karo, direct SAFE return kar do.
-            if len(user_input) <= len(target_url) + 5: 
-                return {"risk_level": "SAFE", "reason": "Verified Trusted Domain (Aeglis Zero-Latency Trust).", "type": "AEGLIS_WHITELIST"}
-        else:
-            # WEBRISK BLACKLIST CHECK
-            webrisk_res = scan_webrisk(target_url)
-            intel_context.append(f"Aeglis SafeLink Engine: {webrisk_res}")
-            
-            # ZERO-DAY PLAYWRIGHT SANDBOX (Scraping Content)
-            print(f"Launching Aeglis Dynamic Sandbox for: {target_url}")
-            sandbox_res = run_url_scanner(target_url)
-            
-            if sandbox_res["status"] == "success":
-                text_context = sandbox_res["extracted_text"]
-                network_context = ", ".join(sandbox_res["network_traffic"])
-                intel_context.append(f"Aeglis Dynamic Sandbox Text: {text_context}")
-                intel_context.append(f"Network Activity Domains: {network_context}")
-            else:
-                intel_context.append(f"Aeglis Dynamic Sandbox Error: {sandbox_res['error_message']}")
-            
-        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang)
-        
-    # 3. IP SCAN
-    ip_found = IP_PATTERN.search(user_input)
-    if ip_found and not url_found: 
-        target_ip = ip_found.group(0)
-        intel_context.append(f"Notice: Bare IP address {target_ip} detected. Evaluate formatting and context for malicious intent.")
-        return scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang)
+        result     = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+        risk_level = result.get("risk_level", "WARNING")
+        reason_en  = result.get("reason", "")
+        if risk_level in REDIS_TTL:
+            result["reason"] = _save_to_redis_and_background_translate(base_key, risk_level, reason_en, lang)
+        return result
 
-    # 4. TEXT SCAN (No URLs/IPs/Hashes found)
-    return scan_groq_ai(user_input, context_flag="No links or IPs detected. Pure text analysis.", lang=lang)
+    # ── 2. URL SCAN ───────────────────────────────────────────────────
+    if has_url:
+        target_url  = url_found.group(0)
+        pure_domain = extract_pure_domain_from_user_input(target_url)
+
+        KNOWN_SHORTENERS = {
+            "bit.ly", "tinyurl.com", "t.co", "is.gd",
+            "buff.ly", "ow.ly", "cutt.ly", "rebrand.ly", "shorturl.at"
+        }
+        if pure_domain in KNOWN_SHORTENERS:
+            target_url  = unmask_short_url(target_url)
+            pure_domain = extract_pure_domain_from_user_input(target_url)
+            intel_context.append("Notice: Shortened URL unmasked to reveal true destination.")
+
+        base_domain = get_base_domain(pure_domain)
+
+        # ── DOMAIN AGE CHECK ──────────────────────────────────────────
+        age_days = get_domain_age(pure_domain)
+        intel_context.append(f"Domain age: {age_days} days")
+        if 0 <= age_days < 7:
+            intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
+
+        # ── WHITELIST CHECK ───────────────────────────────────────────
+        is_whitelisted = (
+            pure_domain in MASTER_WHITELIST or
+            base_domain in MASTER_WHITELIST
+        )
+
+        if is_whitelisted:
+            intel_context.append(f"Domain '{pure_domain}' verified by Aeglis Zero-Latency Trust.")
+            if is_pure_url:
+                reason_en    = "Verified Trusted Domain (Aeglis Zero-Latency Trust)."
+                final_reason = _save_to_redis_and_background_translate(base_key, "SAFE", reason_en, lang)
+                return {"risk_level": "SAFE", "reason": final_reason, "type": "AEGLIS_WHITELIST"}
+            if is_mixed:
+                intel_context.append("URL domain is whitelisted but message text may contain scam context.")
+                intel_context.append(f"Surrounding message text: {user_input}")
+                result     = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+                risk_level = result.get("risk_level", "WARNING")
+                reason_en  = result.get("reason", "")
+                if risk_level in REDIS_TTL:
+                    result["reason"] = _save_to_redis_and_background_translate(base_key, risk_level, reason_en, lang)
+                return result
+
+        # ── NOT WHITELISTED → FULL SCAN ───────────────────────────────
+        webrisk_res = scan_webrisk(target_url)
+        intel_context.append(f"Aeglis SafeLink Engine: {webrisk_res}")
+
+        print(f"Launching Aeglis Dynamic Sandbox: {target_url}")
+        try:
+            sandbox_res = await run_url_scanner(target_url)
+        except Exception as sandbox_exc:
+            intel_context.append(f"Sandbox Error: {sandbox_exc}")
+            sandbox_res = {"status": "failed", "error_message": str(sandbox_exc)}
+
+        visual_res     = None
+        js_res         = sandbox_res if isinstance(sandbox_res, dict) else {}
+        js_behavior    = js_res.get("js_behavior_signals") or {}
+        sandbox_threat = bool(js_res.get("threat_detected"))
+
+        if sandbox_res.get("status") == "success":
+            js_behavior     = js_behavior or {}
+            text_context    = sandbox_res.get("extracted_text", "")
+            network_context = ", ".join(sandbox_res.get("network_traffic") or [])
+
+            intel_context.append(f"Sandbox Page Text: {text_context}")
+            intel_context.append(f"Network Domains: {network_context}")
+            intel_context.append(f"JS Behavior: {json.dumps(js_behavior)[:1000]}")
+
+            redirect_chain = sandbox_res.get("redirect_chain") or []
+            if len(redirect_chain) >= 3:
+                intel_context.append(f"Redirect chain: {len(redirect_chain)} hops detected.")
+
+            screenshot_b64 = sandbox_res.get("screenshot_base64")
+            if screenshot_b64:
+                visual_res = await scan_groq_visual_for_phishing(
+                    screenshot_b64, target_url, lang="en"
+                )
+        else:
+            intel_context.append(f"Sandbox Error: {sandbox_res.get('error_message')}")
+
+        if is_mixed:
+            surrounding_text = user_input.replace(url_found.group(0), "").strip()
+            if surrounding_text:
+                intel_context.append(f"User message surrounding text: '{surrounding_text}'")
+                intel_context.append(
+                    "Analyze surrounding text for social engineering, "
+                    "urgency tactics, fake money promises, etc."
+                )
+
+        # JS threat → force DANGER
+        if sandbox_threat:
+            reason_en    = "Suspicious runtime behavior detected (clipboard/redirect/mining/exfil)."
+            final_reason = _save_to_redis_and_background_translate(base_key, "DANGER", reason_en, lang)
+            return {"risk_level": "DANGER", "reason": final_reason, "type": "JS_BEHAVIOR"}
+
+        # Final AI verdict — English mein scan karo
+        text_res   = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+        candidates = [text_res]
+        if visual_res:
+            candidates.append(visual_res)
+
+        risk_priority = {"DANGER": 3, "WARNING": 2, "SAFE": 1, "ERROR": 0}
+        final = sorted(
+            candidates,
+            key=lambda r: risk_priority.get(r.get("risk_level"), 0),
+            reverse=True
+        )[0]
+
+        # ── REDIS SAVE + BACKGROUND TRANSLATE ────────────────────────
+        risk_level = final.get("risk_level", "WARNING")
+        reason_en  = final.get("reason", "")
+        if risk_level in REDIS_TTL and reason_en:
+            final["reason"] = _save_to_redis_and_background_translate(
+                base_key, risk_level, reason_en, lang
+            )
+        return final
+
+    # ── 3. PURE TEXT SCAN ─────────────────────────────────────────────
+    intel_context.append("Pure text input — no URL/IP/hash found.")
+    intel_context.append(
+        "Analyze for: social engineering, fake offers, "
+        "urgency tactics, phishing language, scam patterns."
+    )
+    result     = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+    risk_level = result.get("risk_level", "WARNING")
+    reason_en  = result.get("reason", "")
+    if risk_level in REDIS_TTL and reason_en:
+        result["reason"] = _save_to_redis_and_background_translate(
+            base_key, risk_level, reason_en, lang
+        )
+    return result
