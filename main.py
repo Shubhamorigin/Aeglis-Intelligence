@@ -44,7 +44,9 @@ load_dotenv()
 app = FastAPI(
     title="Aeglis API v3",
     description="The Ultimate Hybrid AI Security Engine (Consumer + Developer B2B)",
-)
+    docs_url=None,        # disables /docs (Swagger UI)
+    redoc_url=None,       # disables /redoc (ReDoc UI)
+    openapi_url=None      
 
 
 # Rate Limiter Setup (DDoS Protection)
