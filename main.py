@@ -35,6 +35,11 @@ from scanner_engine import AeglisEngine
 from core_engine import Aeglis_master_scan
 from security_engine import generate_new_api_key, hash_api_key
 from webhook_engine import dispatch_webhook
+import io
+import csv
+from datetime import datetime, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 # =====================================================================
 # 1. INITIALIZATION & CONFIG
@@ -77,7 +82,7 @@ MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB safety limit
 class TextScanPayload(BaseModel):
     input_text: str
     lang: str = "en"
-    # 🚨 SECURITY FIX: Frontend se user_id accept karna band kar diya hai.
+    #  SECURITY FIX: Frontend se user_id accept karna band kar diya hai.
     # Ab system sirf JWT token ko trust karega user_id nikalne ke liye.
 
 class B2BScanRequest(BaseModel):
@@ -86,7 +91,7 @@ class B2BScanRequest(BaseModel):
 
 class WebhookUpdateRequest(BaseModel):
     webhook_url: str
-    # 🚨 IDOR FIX: Removed user_id.
+    #  IDOR FIX: Removed user_id.
 
 class DashboardKeyRequest(BaseModel):
     pass # Empty body for key generation (user_id JWT se aayegi)
@@ -210,40 +215,74 @@ async def verify_consumer_origin(request: Request):
         raise HTTPException(status_code=403, detail="Unauthorized: Restricted to official Aeglis UI.")
     return True
 
+# Global store for Sliding Window (Memory safe, no Redis needed)
+RATE_LIMIT_STORE = {}
+
+PLAN_LIMITS = {
+    "free": {"req_per_sec": 1, "monthly_limit": 100},
+    "startup": {"req_per_sec": 5, "monthly_limit": 10000},
+    "enterprise": {"req_per_sec": 25, "monthly_limit": 50000}
+}
+
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 async def verify_developer_key(authorization: str = Depends(api_key_header)) -> str:
-    """B2B Security Guard: Extracts Developer ID from API Key and checks Limits"""
+    """B2B Security Guard: Extracts Dev ID, checks Quotas, and enforces strict Req/Sec"""
     if not authorization:
         raise HTTPException(status_code=401, detail="API Key missing. Use 'Bearer sk_live_...'")
-    
+
     token = authorization.replace("Bearer ", "").strip()
     hashed_token = hash_api_key(token)
-    
-    if not supabase: raise HTTPException(status_code=500, detail="Database disconnected")
-        
-    # Verify API Key
+
+    if not supabase_admin: 
+        raise HTTPException(status_code=500, detail="Database disconnected")
+
+    # 1. Verify API Key
     res = supabase_admin.table("api_keys").select("user_id, is_active").eq("key_hash", hashed_token).execute()
     if not res.data or not res.data[0]["is_active"]:
         raise HTTPException(status_code=401, detail="Invalid or Inactive API Key")
-        
+
     dev_user_id = res.data[0]["user_id"]
-    
-    # Check Plan Limits
+
+    # 2. Fetch Plan & Usage
     prof_res = supabase_admin.table("profiles").select("monthly_api_usage, api_plan").eq("id", dev_user_id).execute()
-    if prof_res.data:
-        profile = prof_res.data[0]
-        usage = profile.get("monthly_api_usage", 0)
-        plan = (profile.get("api_plan") or "free").lower()
+    if not prof_res.data:
+        raise HTTPException(status_code=401, detail="Developer profile missing")
 
-        PLAN_LIMITS = {"free": 100, "startup": 10000, "enterprise": 50000}
-        limit = PLAN_LIMITS.get(plan, 100)
+    profile = prof_res.data[0]
+    usage = profile.get("monthly_api_usage", 0)
+    plan = (profile.get("api_plan") or "free").lower()
 
-        if usage >= limit:
-            raise HTTPException(status_code=429, detail=f"Quota Exceeded: {plan.upper()} limit of {limit:,} requests reached.")
-            
-        supabase_admin.table("profiles").update({"monthly_api_usage": usage + 1}).eq("id", dev_user_id).execute()
-        
+    limits = PLAN_LIMITS.get(plan, PLAN_LIMITS["free"])
+
+    # 3. Monthly Quota Check (402 Payment Required)
+    if usage >= limits["monthly_limit"]:
+        raise HTTPException(
+            status_code=402, 
+            detail=f"Quota Exceeded: {plan.upper()} limit of {limits['monthly_limit']:,} requests reached."
+        )
+
+    # 4. In-Memory Sliding Window (Req/Sec Check)
+    now = time.time()
+    user_history = RATE_LIMIT_STORE.get(dev_user_id, [])
+
+    # Filter out requests older than 1 second
+    user_history = [timestamp for timestamp in user_history if now - timestamp < 1.0]
+
+    if len(user_history) >= limits["req_per_sec"]:
+        RATE_LIMIT_STORE[dev_user_id] = user_history # Update cleaned history
+        raise HTTPException(
+            status_code=429, 
+            detail=f"Rate limit exceeded. Your {plan.upper()} plan allows {limits['req_per_sec']} req/sec."
+        )
+
+    # Log current request timestamp
+    user_history.append(now)
+    RATE_LIMIT_STORE[dev_user_id] = user_history
+
+    # 5. Increment Database Usage
+    supabase_admin.table("profiles").update({"monthly_api_usage": usage + 1}).eq("id", dev_user_id).execute()
+
     return dev_user_id
 
 # =====================================================================
@@ -253,7 +292,7 @@ async def verify_developer_key(authorization: str = Depends(api_key_header)) -> 
 async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
     """Groq Llama 3.3 Intelligence Analysis"""
     
-    # 🚀 1. The Smart Language Mapper (Short code to Full Name)
+    #  1. The Smart Language Mapper (Short code to Full Name)
     language_map = {
         "en": "English",
         "hi": "Hindi",
@@ -266,7 +305,7 @@ async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
     
     safe_context = context_val[:2000] + "... [TRUNCATED]" if context_val and len(context_val) > 2000 else context_val
     
-    # 🚀 2. Prompt mein target_language inject kar diya
+    #  2. Prompt mein target_language inject kar diya
     prompt = f"""
     You are Aeglis Intelligence, a senior cybersecurity analyst.
     Analyze this combined report and determine the safety.
@@ -298,7 +337,7 @@ async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
         )
         return json.loads(completion.choices[0].message.content)
     except Exception as e:
-        print(f"⚠️ Groq AI Error: {e}")
+        print(f" Groq AI Error: {e}")
         return {"risk_level": "WARNING", "reason": "AI Analysis failed, but indicators look suspicious."}
 
     
@@ -392,7 +431,7 @@ async def google_auth_callback(request: Request, code: str, target_url: str = "h
         auth_response = supabase.auth.exchange_code_for_session({"auth_code": code})
         token = auth_response.session.access_token
         
-        # 🚀 TRUE SSO FIX: Hamesha pehle central Auth (5501) par bhejo token ke sath
+        #  TRUE SSO FIX: Hamesha pehle central Auth (5501) par bhejo token ke sath
         central_auth = "https://www.aeglis.com/auth.html"
         
         # User central auth pe aayega, wahan JS usko save karega, aur target_url pe bhej dega
@@ -405,7 +444,7 @@ async def google_auth_callback(request: Request, code: str, target_url: str = "h
 async def native_google_login(payload: NativeGoogleAuth):
     """B2C Endpoint: For Android Native Google Sign-In via Supabase"""
     try:
-        # 🚀 Supabase ka apna Native Magic
+        #  Supabase ka apna Native Magic
         # Ye Google Token ko verify karega aur user ko DB mein login/signup kar dega
         auth_response = supabase.auth.sign_in_with_id_token({
             "provider": "google",
@@ -423,7 +462,7 @@ async def native_google_login(payload: NativeGoogleAuth):
         }
         
     except Exception as e:
-        print(f"🚨 Native Auth Error: {e}")
+        print(f" Native Auth Error: {e}")
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 
@@ -433,25 +472,25 @@ async def native_google_login(payload: NativeGoogleAuth):
 async def get_my_profile(
     request: Request, 
     user_id: str = Depends(get_current_user),
-    x_client_type: str = Header(default="b2c")  # 🔥 Header se frontend ka type pakda
+    x_client_type: str = Header(default="b2c")  #  Header se frontend ka type pakda
 ):
     try:
         for attempt in range(3):
-            # 🛠️ Step 1: Database se saara raw data utha lo (Naye columns ke sath)
+            #  Step 1: Database se saara raw data utha lo (Naye columns ke sath)
             columns = 'id, full_name, email, app_credits, app_plan, api_plan, webhook_url, webhook_secret, monthly_api_usage'
             user_res = supabase_admin.table('profiles').select(columns).eq('id', user_id).execute()
             
             if user_res.data:
                 raw_data = user_res.data[0]
                 
-                # 🎨 Step 2: Base Profile (Jo dono dashboards ko chahiye)
+                #  Step 2: Base Profile (Jo dono dashboards ko chahiye)
                 filtered_profile = {
                     "id": raw_data["id"],
                     "full_name": raw_data["full_name"],
                     "email": raw_data["email"]
                 }
                 
-                # 🏢 Step 3: B2B Logic (Dev Dashboard)
+                #  Step 3: B2B Logic (Dev Dashboard)
                 if x_client_type == "b2b":
                     filtered_profile["plan_type"] = raw_data.get("api_plan", "free")
                     filtered_profile["monthly_api_usage"] = raw_data.get("monthly_api_usage", 0)
@@ -459,7 +498,7 @@ async def get_my_profile(
                     filtered_profile["webhook_secret"] = raw_data.get("webhook_secret")
                     # Notice: Yahan humne 'credit' dictionary mein add hi nahi kiya!
                     
-                # 📱 Step 4: B2C Logic (Aeglis Mobile App)
+                #  Step 4: B2C Logic (Aeglis Mobile App)
                 else:
                     filtered_profile["plan_type"] = raw_data.get("app_plan", "free")
                     filtered_profile["credits"] = raw_data.get("app_credits", 0)
@@ -570,6 +609,36 @@ async def get_api_data(request: Request, current_user_id: str = Depends(get_curr
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to fetch API data.")
 
+@b2b_router.get("/dashboard/reports")
+async def get_enterprise_reports(request: Request, current_user_id: str = Depends(get_current_user)):
+    """Generates secure 60-second Signed URLs for Cold Storage CSVs"""
+    try:
+        folder_path = f"enterprise_archives/{current_user_id}"
+
+        # Uses supabase_admin to bypass RLS for server-side fetching
+        files_response = supabase_admin.storage.from_("cold-storage").list(folder_path)
+
+        reports = []
+        if files_response:
+            for file in files_response:
+                if file['name'].endswith('.csv'):
+                    file_path = f"{folder_path}/{file['name']}"
+
+                    # Create a 60-second secure temporary download link
+                    signed_url_res = supabase_admin.storage.from_("cold-storage").create_signed_url(file_path, 60)
+
+                    reports.append({
+                        "file_name": file['name'],
+                        "download_url": signed_url_res['signedURL']
+                    })
+
+        return {"status": "success", "reports": sorted(reports, key=lambda x: x['file_name'], reverse=True)}
+
+    except Exception as e:
+        print(f"Report fetch error: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch compliance reports.")
+
+
 app.include_router(b2b_router)
 
 
@@ -579,7 +648,7 @@ app.include_router(b2b_router)
 
 @app.get("/")
 def health_check():
-    return {"status": "Active", "engine": "Aeglis Intelligence is Online 🦅"}
+    return {"status": "Active", "engine": "Aeglis Intelligence is Online "}
 
 @app.post("/scan")
 @limiter.limit("10/minute")
@@ -591,7 +660,7 @@ async def scan_text(
 ):
     try:
         await verify_user_has_credits(current_user_id)
-        # 🚀 FIX: payload.lang ko Aeglis_master_scan mein bhej diya
+        #  FIX: payload.lang ko Aeglis_master_scan mein bhej diya
         core_result = await Aeglis_master_scan(payload.input_text, payload.lang)
             
         if supabase:
@@ -620,7 +689,7 @@ async def scan_text(
         raise e
     except Exception as e:
         # Log real error so we can identify the crash source (scan engine vs DB insert vs other)
-        print(f"❌ /scan runtime error: {repr(e)}")
+        print(f" /scan runtime error: {repr(e)}")
         raise HTTPException(status_code=500, detail="Text Scan Engine Failure")
 
     
@@ -693,7 +762,7 @@ async def scan_intercept(
         raise HTTPException(status_code=502, detail=f"Scan intercept failed: {str(e)}")
 
     finally:
-        # 🧹 The Ultimate Cleanup: This block runs NO MATTER WHAT (success or fail)
+        #  The Ultimate Cleanup: This block runs NO MATTER WHAT (success or fail)
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -735,18 +804,18 @@ async def deep_scan(
         }
 
         # 3. Get AI Intelligence Verdict
-        # 🚀 FIX: lang variable ko get_ai_verdict function mein bhej diya
+        #  FIX: lang variable ko get_ai_verdict function mein bhej diya
         ai_res = await get_ai_verdict(combined_report, f"File: {file.filename} | Msg: {input_text or ''}", lang)
-        print(f"🧠 Raw Groq Output: {ai_res}")
+        print(f" Raw Groq Output: {ai_res}")
         
-        # 🛡️ FIX 1: Safe dictionary .get() to prevent KeyErrors if Groq hallucinates
+        #  FIX 1: Safe dictionary .get() to prevent KeyErrors if Groq hallucinates
         risk_level = ai_res.get("risk_level", "WARNING")
         reason = ai_res.get("reason", "Analyzed by Aeglis Intelligence")
 
         # 5. Save to Database History
         if supabase:
             try:
-                # 🛡️ FIX 2: Protect against NoneType slicing if mime_type is missing
+                #  FIX 2: Protect against NoneType slicing if mime_type is missing
                 mime_raw = file_report.get("mime_type")
                 mime_str = str(mime_raw) if mime_raw else "UNKNOWN"
                 mime_prefix = mime_str[:20]
@@ -759,10 +828,10 @@ async def deep_scan(
                     "reason": reason,
                     "ai_explanation": json.dumps(ai_res) if ai_res else None
                     # Agar reason hi missing hua toh pura ai_res hi DB me save ho jayega, jo ki better hai than crashing the DB insert. (Ye field optional hona chahiye DB me) 
-                    # 🛡️ FIX 3: Removed "ai_explanation" field to prevent DB crashes if column doesn't exist
+                    #  FIX 3: Removed "ai_explanation" field to prevent DB crashes if column doesn't exist
                 }).execute()
             except Exception as db_err:
-                print(f"⚠️ History Save Error (Ignored): {db_err}")
+                print(f" History Save Error (Ignored): {db_err}")
                 # Agar DB fat bhi gaya, tab bhi user ko result dikhega!
 
         if os.path.exists(temp_path): os.remove(temp_path)
@@ -782,14 +851,14 @@ async def deep_scan(
     except HTTPException as e: raise e
     except Exception as e:
         if os.path.exists(temp_path): os.remove(temp_path)
-        print(f"❌ Deep Scan Error: {str(e)}")
+        print(f" Deep Scan Error: {str(e)}")
         # Ab terminal/log me exact error string print hogi
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
         
 @app.post("/get/history")
 async def get_history(request: Request, current_user_id: str = Depends(get_current_user)):
     
-    # 🚀 FIX: .eq('is_deleted', False) add kar diya hai
+    #  FIX: .eq('is_deleted', False) add kar diya hai
     scan_res = supabase_admin.table('scans')\
         .select('id, input_data, risk_level, scanned_at, reason')\
         .eq('user_id', current_user_id)\
@@ -817,7 +886,7 @@ async def delete_history(
         
         return {"status": "success", "message": "Scan history entry deleted."}
     except Exception as e:
-        print(f"❌ Delete Error: {e}")
+        print(f" Delete Error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/delete/all-history")
@@ -857,8 +926,89 @@ async def create_support_ticket(
         }
         
     except Exception as e:
-        print(f"🚨 Support Ticket Error: {e}")
+        print(f" Support Ticket Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to submit ticket. Please try again later.")
+
+
+# =====================================================================
+# 8. BACKGROUND ENGINES (Enterprise Cold Storage)
+# =====================================================================
+
+def archive_enterprise_logs():
+    """Chunked Monthly B2B Log Archival to S3/Storage"""
+    print("Starting Monthly Enterprise Cold Storage Archival...")
+    try:
+        today = datetime.utcnow()
+        first_day_current = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_day_prev = first_day_current - timedelta(seconds=1)
+        first_day_prev = last_day_prev.replace(day=1)
+
+        start_date = first_day_prev.isoformat()
+        end_date = first_day_current.isoformat()
+        month_name = first_day_prev.strftime('%Y-%m') 
+
+        users_res = supabase_admin.table("profiles").select("id").eq("api_plan", "enterprise").execute()
+        enterprise_users = [user['id'] for user in users_res.data]
+
+        for user_id in enterprise_users:
+            csv_buffer = io.StringIO()
+            writer = None
+
+            batch_size = 5000 
+            start_idx = 0
+            total_logs_archived = 0
+
+            while True:
+                logs_res = supabase_admin.table("api_logs").select("*") \
+                    .eq("user_id", user_id) \
+                    .gte("created_at", start_date) \
+                    .lt("created_at", end_date) \
+                    .range(start_idx, start_idx + batch_size - 1) \
+                    .execute()
+
+                logs = logs_res.data
+                if not logs: break 
+
+                if writer is None:
+                    writer = csv.DictWriter(csv_buffer, fieldnames=logs[0].keys())
+                    writer.writeheader()
+
+                writer.writerows(logs)
+                total_logs_archived += len(logs)
+
+                if len(logs) < batch_size: break
+                start_idx += batch_size
+
+            if total_logs_archived > 0:
+                file_path = f"enterprise_archives/{user_id}/{month_name}_logs.csv"
+
+                supabase_admin.storage.from_("cold-storage").upload(
+                    file_path,
+                    csv_buffer.getvalue().encode('utf-8'),
+                    {"content-type": "text/csv"}
+                )
+
+                supabase_admin.table("api_logs").delete() \
+                    .eq("user_id", user_id) \
+                    .gte("created_at", start_date) \
+                    .lt("created_at", end_date) \
+                    .execute()
+
+                print(f"Archived {total_logs_archived} logs into {month_name}_logs.csv for {user_id}")
+    except Exception as e:
+        print(f"Archiver Failed: {e}")
+
+# Scheduler Instance
+scheduler = BackgroundScheduler()
+scheduler.add_job(archive_enterprise_logs, 'cron', day=1, hour=2, minute=0)
+
+@app.on_event("startup")
+def startup_event():
+    scheduler.start()
+
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
