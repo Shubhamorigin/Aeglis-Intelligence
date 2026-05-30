@@ -221,7 +221,7 @@ RATE_LIMIT_STORE = {}
 PLAN_LIMITS = {
     "free": {"req_per_sec": 1, "monthly_limit": 100},
     "startup": {"req_per_sec": 5, "monthly_limit": 10000},
-    "enterprise": {"req_per_sec": 25, "monthly_limit": 50000}
+    "scale": {"req_per_sec": 25, "monthly_limit": 50000}
 }
 
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
@@ -610,7 +610,7 @@ async def get_api_data(request: Request, current_user_id: str = Depends(get_curr
         raise HTTPException(status_code=500, detail="Failed to fetch API data.")
 
 @b2b_router.get("/dashboard/reports")
-async def get_enterprise_reports(request: Request, current_user_id: str = Depends(get_current_user)):
+async def get_csv_reports(request: Request, current_user_id: str = Depends(get_current_user)):
     """Generates secure 60-second Signed URLs for Cold Storage CSVs"""
     try:
         folder_path = f"enterprise_archives/{current_user_id}"
@@ -947,7 +947,7 @@ def archive_enterprise_logs():
         end_date = first_day_current.isoformat()
         month_name = first_day_prev.strftime('%Y-%m') 
 
-        users_res = supabase_admin.table("profiles").select("id").eq("api_plan", "enterprise").execute()
+        users_res = supabase_admin.table("profiles").select("id").in_("api_plan", ["scale", "enterprise"]).execute()
         enterprise_users = [user['id'] for user in users_res.data]
 
         for user_id in enterprise_users:
