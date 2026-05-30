@@ -558,7 +558,35 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
     user_input = user_input.strip()
 
-    # ── STEP 0A: REDIS CHECK (RAM se — sabse fast) ────────────────────
+    # ── STEP 0A: WHITELIST PRE-CHECK (Sabse pehle — O(1) RAM lookup) ──
+    # Pure whitelisted URL → instant SAFE, zero Redis, zero AI, zero credit cost.
+    # Yeh check Redis se PEHLE hona ZAROORI hai taaki cached CACHED_RESULT
+    # kabhi bhi whitelist domain ke liye credit na kaate.
+    _pre_url_match = URL_PATTERN.search(user_input)
+    if _pre_url_match:
+        _pre_domain  = extract_pure_domain_from_user_input(_pre_url_match.group(0))
+        _pre_base    = get_base_domain(_pre_domain)
+        _pre_is_pure = len(user_input.strip()) <= len(_pre_url_match.group(0)) + 5
+
+        if _pre_is_pure and (
+            _pre_domain in MASTER_WHITELIST or
+            _pre_base   in MASTER_WHITELIST
+        ):
+            base_key     = get_redis_base_key(user_input)
+            reason_en    = "Verified Trusted Domain (Aeglis Zero-Latency Trust)."
+            final_reason = _save_to_redis_and_background_translate(
+                base_key, "SAFE", reason_en, lang
+            )
+            print(f"⚡ WHITELIST PRE-CHECK HIT (pre-Redis): {_pre_domain}")
+            return {
+                "risk_level": "SAFE",
+                "reason":     final_reason,
+                "type":       "AEGLIS_WHITELIST"
+            }
+
+    # ── STEP 0B: REDIS CHECK (RAM se — sabse fast) ────────────────────
+    # Note: Whitelist domains yahan kabhi nahi pahunchenge (Step 0A ne
+    # pehle hi return kar diya). CACHED_RESULT sirf real scans ke liye.
     base_key = get_redis_base_key(user_input)
 
     redis_cached = redis_get(base_key, lang)
@@ -625,7 +653,9 @@ async def Aeglis_master_scan(user_input, lang="en"):
         if 0 <= age_days < 7:
             intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
 
-        # ── WHITELIST CHECK ───────────────────────────────────────────
+        # ── WHITELIST CHECK (Step 2 — only for mixed inputs now) ─────────
+        # Pure whitelisted URLs return karo Step 0A se pehle hi.
+        # Yahan sirf mixed input reach karta hai (URL + surrounding text).
         is_whitelisted = (
             pure_domain in MASTER_WHITELIST or
             base_domain in MASTER_WHITELIST
@@ -633,10 +663,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
         if is_whitelisted:
             intel_context.append(f"Domain '{pure_domain}' verified by Aeglis Zero-Latency Trust.")
-            if is_pure_url:
-                reason_en    = "Verified Trusted Domain (Aeglis Zero-Latency Trust)."
-                final_reason = _save_to_redis_and_background_translate(base_key, "SAFE", reason_en, lang)
-                return {"risk_level": "SAFE", "reason": final_reason, "type": "AEGLIS_WHITELIST"}
+            # is_pure_url case yahan kabhi nahi aayega (Step 0A ne handle kar liya)
             if is_mixed:
                 intel_context.append("URL domain is whitelisted but message text may contain scam context.")
                 intel_context.append(f"Surrounding message text: {user_input}")
