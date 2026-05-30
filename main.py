@@ -37,7 +37,7 @@ from security_engine import generate_new_api_key, hash_api_key
 from webhook_engine import dispatch_webhook
 import io
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta , timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -596,10 +596,61 @@ async def update_webhook_config(
 @b2b_router.get("/dashboard/api-logs")
 async def get_api_logs(request: Request, current_user_id: str = Depends(get_current_user)):
     try:
-        logs_res = supabase_admin.table("api_logs").select("*").eq("user_id", current_user_id).order("created_at", desc=True).execute()
-        return {"status": "success", "logs": logs_res.data}
-    except Exception:
+        # 1. FETCH LIVE TABLE LOGS (Top 50 Only - Extremely Fast)
+        logs_res = supabase_admin.table("api_logs") \
+            .select("id, created_at, method, endpoint, status_code, risk_level, latency_ms") \
+            .eq("user_id", current_user_id) \
+            .order("created_at", desc=True) \
+            .limit(50) \
+            .execute()
+
+        # 2. FETCH 7-DAY STATS DATA (Lightweight columns only)
+        seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        stats_res = supabase_admin.table("api_logs") \
+            .select("created_at, risk_level, latency_ms") \
+            .eq("user_id", current_user_id) \
+            .gte("created_at", seven_days_ago) \
+            .execute()
+
+        # 3. CALCULATE AGGREGATIONS IN PYTHON (Offloads work from frontend)
+        seven_day_data = stats_res.data
+        total_7d = len(seven_day_data)
+        threats_7d = 0
+        total_latency = 0
+        chart_counts = [0] * 7
+        
+        today_date = datetime.now(timezone.utc).date()
+
+        for log in seven_day_data:
+            if log.get("risk_level") == "DANGER":
+                threats_7d += 1
+            total_latency += log.get("latency_ms", 0)
+            
+            # Parse time safely and calculate chart bucket
+            log_time_str = log["created_at"].replace("Z", "+00:00")
+            log_date = datetime.fromisoformat(log_time_str).date()
+            diff_days = (today_date - log_date).days
+            
+            if 0 <= diff_days < 7:
+                chart_counts[6 - diff_days] += 1
+
+        avg_latency = (total_latency / total_7d) if total_7d > 0 else 0
+
+        # 4. SEND CLEAN, TINY PAYLOAD TO FRONTEND
+        return {
+            "status": "success", 
+            "logs": logs_res.data, 
+            "stats_7d": {
+                "total": total_7d,
+                "threats": threats_7d,
+                "avg_latency": round(avg_latency, 2),
+                "chart": chart_counts
+            }
+        }
+    except Exception as e:
+        print(f"Dashboard Logs Error: {str(e)}") # Always log real errors to server console
         raise HTTPException(status_code=500, detail="Failed to fetch API logs.")
+        
     
 @b2b_router.get("/dashboard/api-data")
 async def get_api_data(request: Request, current_user_id: str = Depends(get_current_user)):
