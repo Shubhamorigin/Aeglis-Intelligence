@@ -572,15 +572,14 @@ async def Aeglis_master_scan(user_input, lang="en"):
             _pre_domain in MASTER_WHITELIST or
             _pre_base   in MASTER_WHITELIST
         ):
-            base_key     = get_redis_base_key(user_input)
-            reason_en    = "Verified Trusted Domain (Aeglis Zero-Latency Trust)."
-            final_reason = _save_to_redis_and_background_translate(
-                base_key, "SAFE", reason_en, lang
-            )
+            # Redis mein save NAHI karenge — whitelist check hamesha Redis se
+            # PEHLE fire hota hai. Agle scan mein bhi Step 0A yahi RAM lookup
+            # karega, Redis tak pahunchega hi nahi. Wasted SET call bachega
+            # aur Redis memory sirf real scan results ke liye use hogi.
             print(f"⚡ WHITELIST PRE-CHECK HIT (pre-Redis): {_pre_domain}")
             return {
                 "risk_level": "SAFE",
-                "reason":     final_reason,
+                "reason":     "Verified Trusted Domain (Aeglis Zero-Latency Trust).",
                 "type":       "AEGLIS_WHITELIST"
             }
 
