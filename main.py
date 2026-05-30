@@ -184,17 +184,15 @@ async def deduct_user_credit(current_user_id: str) -> None:
         if current_credits <= 0:
             raise HTTPException(status_code=402, detail="Credits expired. Please upgrade your plan.")
 
-        supabase_admin.table("profiles").update({"app_credits": current_credits - 1}).eq("id", current_user_id).execute()
+        supabase_admin.table("profiles").update(
+            {"app_credits": current_credits - 1}
+        ).eq("id", current_user_id).execute()
+
     except HTTPException:
         raise
     except Exception as e:
         print(f"Credit System Error (deduct_user_credit): {e}")
         raise HTTPException(status_code=500, detail="Credit deduction failed.")
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Credit System Error: {e}")
-        raise HTTPException(status_code=500, detail="Credit verification failed.")
 
 async def verify_consumer_origin(request: Request):
     """Guards against direct API abuse via fake clients"""
@@ -723,11 +721,15 @@ async def scan_text(
                 "reason": core_result.get("reason", "Analyzed by Aeglis Intelligence")
             }).execute()
 
-        # ---- B2C Credit Deduction (after scan complete; fail-safe) ----
-        free_scan_types = ["AEGLIS_WHITELIST"]
-        scan_type = core_result.get("type")
-        if scan_type not in free_scan_types:   
-            # Deduct only when we are sure scan result is produced.
+        # ── B2C CREDIT DEDUCTION ──────────────────────────────────────────
+        # AEGLIS_WHITELIST: Step 0A ne whitelist match kiya — zero compute,
+        #   zero Redis, seedha RAM se → credit nahi katna.
+        # CACHED_RESULT:    Sirf real (non-whitelist) scans cache hote hain.
+        #   Whitelist URLs Step 0A se return ho jaate hain isliye unka
+        #   CACHED_RESULT kabhi nahi aata → yahan credit correctly deduct hota
+        #   hai sirf genuine computation wale cached results ke liye.
+        FREE_SCAN_TYPES = {"AEGLIS_WHITELIST"}
+        if core_result.get("type") not in FREE_SCAN_TYPES:
             await deduct_user_credit(current_user_id)
 
 
