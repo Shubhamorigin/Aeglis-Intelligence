@@ -646,13 +646,14 @@ async def get_api_logs(request: Request, current_user_id: str = Depends(get_curr
                 threats_7d += 1
             total_latency += log.get("latency_ms", 0)
 
-            # Parse time safely and calculate chart bucket
-            log_time_str = log["created_at"].replace("Z", "+00:00")
-            log_date = datetime.fromisoformat(log_time_str).date()
-            diff_days = (today_date - log_date).days
+            # Parse time safely and calculate chart bucket (202 chart mein bhi nahi)
+            if log.get("status_code") != 202:
+                log_time_str = log["created_at"].replace("Z", "+00:00")
+                log_date = datetime.fromisoformat(log_time_str).date()
+                diff_days = (today_date - log_date).days
 
-            if 0 <= diff_days < 7:
-                chart_counts[6 - diff_days] += 1
+                if 0 <= diff_days < 7:
+                    chart_counts[6 - diff_days] += 1
 
         total_7d = actual_requests  # 202 minus karke final count
         avg_latency = (total_latency / total_7d) if total_7d > 0 else 0
