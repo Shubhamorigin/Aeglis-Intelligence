@@ -52,11 +52,13 @@ LANGUAGE_NAMES = {
 # Cache WHOIS results to reduce repeated lookups during high traffic
 _DOMAIN_AGE_CACHE = {}
 
-def get_domain_age(domain: str) -> int:
+def get_domain_age(domain: str) -> int | None:
     """Return domain age in days using WHOIS.
 
-    - If creation date missing/WHOIS fails => returns -1
-    - Handles creation_date being datetime or list[datetime]
+    Returns:
+        int  >= 0  : valid age in days
+        -1         : domain invalid, WHOIS returned no creation date, or unparseable date
+        None       : transient error (network failure, rate limit) — DO NOT cache, retry later
     """
     if not domain:
         return -1
@@ -68,27 +70,45 @@ def get_domain_age(domain: str) -> int:
     if domain in _DOMAIN_AGE_CACHE:
         return _DOMAIN_AGE_CACHE[domain]
 
+    # ── WHOIS LOOKUP ──────────────────────────────────────────────────────
     try:
         w = whois.whois(domain)
-        created = getattr(w, 'creation_date', None)
+    except Exception as e:
+        # Transient: network down, rate-limited, timeout, etc.
+        # DO NOT cache — caller should treat None as "unknown, try again later."
+        print(f"[WHOIS] Transient error for '{domain}': {e}")
+        return None
 
-        if isinstance(created, list):
-            created = created[0] if created else None
+    # ── EXTRACT creation_date ─────────────────────────────────────────────
+    created = getattr(w, 'creation_date', None)
 
-        if not created:
+    # Some registrars return a list; take the earliest date
+    if isinstance(created, list):
+        created = created[0] if created else None
+
+    if not created:
+        # WHOIS succeeded but data genuinely missing → safe to cache as -1
+        _DOMAIN_AGE_CACHE[domain] = -1
+        return -1
+
+    # ── NORMALISE TO NAIVE datetime ───────────────────────────────────────
+    if not isinstance(created, datetime):
+        # Fallback: WHOIS lib returned a string (e.g. "2020-03-15 00:00:00")
+        # strptime is more forgiving than fromisoformat for WHOIS quirks
+        try:
+            created = datetime.strptime(str(created).split(' ')[0], '%Y-%m-%d')
+        except ValueError:
             _DOMAIN_AGE_CACHE[domain] = -1
             return -1
 
-        # Some whois libs may return strings
-        if not isinstance(created, datetime):
-            created = datetime.fromisoformat(str(created).split(' ')[0])
+    # Strip tz info so datetime.now() subtraction never raises TypeError
+    if created.tzinfo is not None:
+        created = created.replace(tzinfo=None)
 
-        age_days = (datetime.now() - created).days
-        _DOMAIN_AGE_CACHE[domain] = age_days
-        return age_days
-    except Exception:
-        _DOMAIN_AGE_CACHE[domain] = -1
-        return -1
+    # ── CALCULATE + CACHE ─────────────────────────────────────────────────
+    age_days = (datetime.now() - created).days
+    _DOMAIN_AGE_CACHE[domain] = age_days
+    return age_days
 
 
 
@@ -651,9 +671,14 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
         # ── DOMAIN AGE CHECK ──────────────────────────────────────────
         age_days = get_domain_age(pure_domain)
-        intel_context.append(f"Domain age: {age_days} days")
-        if 0 <= age_days < 7:
-            intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
+        if age_days is None:
+            intel_context.append("Domain age: unknown (WHOIS lookup failed, treat as unverified)")
+        elif age_days == -1:
+            intel_context.append("Domain age: unknown (no creation date in WHOIS)")
+        else:
+            intel_context.append(f"Domain age: {age_days} days")
+            if age_days < 7:
+                intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
 
         # ── WHITELIST CHECK (Step 2 — only for mixed inputs now) ─────────
         # Pure whitelisted URLs return karo Step 0A se pehle hi.
