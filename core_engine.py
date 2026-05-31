@@ -585,28 +585,34 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
     # ── STEP 0B: REDIS CHECK (RAM se — sabse fast) ────────────────────
     # Note: Whitelist domains yahan kabhi nahi pahunchenge (Step 0A ne
-    # pehle hi return kar diya). CACHED_RESULT sirf real scans ke liye.
+    # pehle hi return kar diya). CACHED_RESULT sirf URL/hash scans ke liye.
+    # Pure text ke liye Redis check + save dono skip — sensitive data cache nahi karte.
+    url_check   = URL_PATTERN.search(user_input)
+    hash_check  = is_valid_hash(user_input)
+    is_cacheable = bool(url_check)  # sirf URL cacheable hai, hash aur text nahi
+
     base_key = get_redis_base_key(user_input)
 
-    redis_cached = redis_get(base_key, lang)
-    if redis_cached:
-        return {
-            "risk_level": redis_cached["risk_level"],
-            "reason":     redis_cached["reason"],
-            "type":       "CACHED_RESULT"
-        }
-
-    # User ki lang nahi mili — English check karo
-    if lang != "en":
-        redis_en = redis_get(base_key, "en")
-        if redis_en:
-            translated = translate_reason_sync(redis_en["reason"], lang)
-            redis_set(base_key, lang, redis_en["risk_level"], translated)
+    if is_cacheable:
+        redis_cached = redis_get(base_key, lang)
+        if redis_cached:
             return {
-                "risk_level": redis_en["risk_level"],
-                "reason":     translated,
+                "risk_level": redis_cached["risk_level"],
+                "reason":     redis_cached["reason"],
                 "type":       "CACHED_RESULT"
             }
+
+        # User ki lang nahi mili — English check karo
+        if lang != "en":
+            redis_en = redis_get(base_key, "en")
+            if redis_en:
+                translated = translate_reason_sync(redis_en["reason"], lang)
+                redis_set(base_key, lang, redis_en["risk_level"], translated)
+                return {
+                    "risk_level": redis_en["risk_level"],
+                    "reason":     translated,
+                    "type":       "CACHED_RESULT"
+                }
 
     intel_context = []
 
@@ -623,11 +629,8 @@ async def Aeglis_master_scan(user_input, lang="en"):
     if is_valid_hash(user_input):
         vt_res = scan_virustotal(user_input)
         intel_context.append(f"Aeglis Autopsy Sandbox: {vt_res}")
-        result     = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
-        risk_level = result.get("risk_level", "WARNING")
-        reason_en  = result.get("reason", "")
-        if risk_level in REDIS_TTL:
-            result["reason"] = _save_to_redis_and_background_translate(base_key, risk_level, reason_en, lang)
+        result = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+        # Hash scan Redis mein NAHI save karte — sirf URL cacheable hai
         return result
 
     # ── 2. URL SCAN ───────────────────────────────────────────────────
@@ -753,11 +756,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
         "Analyze for: social engineering, fake offers, "
         "urgency tactics, phishing language, scam patterns."
     )
-    result     = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
-    risk_level = result.get("risk_level", "WARNING")
-    reason_en  = result.get("reason", "")
-    if risk_level in REDIS_TTL and reason_en:
-        result["reason"] = _save_to_redis_and_background_translate(
-            base_key, risk_level, reason_en, lang
-        )
+    result = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+    # Pure text Redis mein NAHI save karte — har user ka text unique hota hai,
+    # caching koi fayda nahi aur sensitive data Redis mein nahi chahiye.
     return result
