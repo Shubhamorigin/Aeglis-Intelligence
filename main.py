@@ -634,15 +634,13 @@ async def get_api_logs(request: Request, current_user_id: str = Depends(get_curr
         threats_7d = 0
         total_latency = 0
         chart_counts = [0] * 7
-        actual_requests = 0  # 202 (deep-scan accepted) ko count se bahar rakho
+        actual_requests = 0  # sirf 200 OK wale count honge
 
         today_date = datetime.now(timezone.utc).date()
 
         for log in seven_day_data:
-            is_202 = log.get("status_code") == 202
-
-            if not is_202:
-                actual_requests += 1  # sirf real completed requests count karo
+            if log.get("status_code") == 200:
+                actual_requests += 1  # sirf 200 OK count karo
 
             if log.get("risk_level") == "DANGER":
                 threats_7d += 1
