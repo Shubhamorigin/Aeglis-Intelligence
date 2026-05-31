@@ -624,33 +624,39 @@ async def get_api_logs(request: Request, current_user_id: str = Depends(get_curr
         # 2. FETCH 7-DAY STATS DATA (Lightweight columns only)
         seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         stats_res = supabase_admin.table("api_logs") \
-            .select("created_at, risk_level, latency_ms") \
+            .select("created_at, risk_level, latency_ms, status_code") \
             .eq("user_id", current_user_id) \
             .gte("created_at", seven_days_ago) \
             .execute()
 
         # 3. CALCULATE AGGREGATIONS IN PYTHON (Offloads work from frontend)
         seven_day_data = stats_res.data
-        total_7d = len(seven_day_data)
         threats_7d = 0
         total_latency = 0
         chart_counts = [0] * 7
-        
+        actual_requests = 0  # 202 (deep-scan accepted) ko count se bahar rakho
+
         today_date = datetime.now(timezone.utc).date()
 
         for log in seven_day_data:
+            is_202 = log.get("status_code") == 202
+
+            if not is_202:
+                actual_requests += 1  # sirf real completed requests count karo
+
             if log.get("risk_level") == "DANGER":
                 threats_7d += 1
             total_latency += log.get("latency_ms", 0)
-            
+
             # Parse time safely and calculate chart bucket
             log_time_str = log["created_at"].replace("Z", "+00:00")
             log_date = datetime.fromisoformat(log_time_str).date()
             diff_days = (today_date - log_date).days
-            
+
             if 0 <= diff_days < 7:
                 chart_counts[6 - diff_days] += 1
 
+        total_7d = actual_requests  # 202 minus karke final count
         avg_latency = (total_latency / total_7d) if total_7d > 0 else 0
 
         # 4. SEND CLEAN, TINY PAYLOAD TO FRONTEND
