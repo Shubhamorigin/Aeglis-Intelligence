@@ -527,9 +527,12 @@ async def developer_scan(request: Request, payload: B2BScanRequest, dev_user_id:
     start_time = time.time()
     try:
         core_result = await Aeglis_master_scan(payload.input_text)
-            
         await log_api_call(dev_user_id, "/v3/api/scan", 200, start_time, core_result.get("risk_level"), payload.end_user_id)
         return {"status": "success", "data": core_result}
+    except HTTPException as e:
+        # 429 (req/sec ya quota), 401 (bad key) — jo bhi aaye wahi log karo
+        await log_api_call(dev_user_id, "/v3/api/scan", e.status_code, start_time, None, payload.end_user_id)
+        raise
     except Exception as e:
         await log_api_call(dev_user_id, "/v3/api/scan", 500, start_time, None, payload.end_user_id)
         raise HTTPException(status_code=500, detail="Developer Scan Failed")
@@ -546,19 +549,28 @@ async def developer_deep_scan(
     """B2B Deep Scan: Secured by API Key"""
     start_time = time.time()
     if not os.path.exists("temp_uploads"): os.makedirs("temp_uploads")
-    
+
     temp_path = f"temp_uploads/b2b_{secrets.token_hex(8)}_{file.filename}"
-    file_size = 0
-    with open(temp_path, "wb") as buffer:
-        while chunk := await file.read(1024 * 1024):
-            file_size += len(chunk)
-            if file_size > MAX_FILE_SIZE:
-                os.remove(temp_path)
-                raise HTTPException(status_code=413, detail="File too large. Maximum 50MB allowed.")
-            buffer.write(chunk)
-            
-    background_tasks.add_task(process_b2b_deep_scan, dev_user_id, temp_path, file.filename, input_text, start_time, end_user_id)
-    return {"status": "processing", "message": "File accepted. Result will be dispatched to your Webhook."}
+    try:
+        file_size = 0
+        with open(temp_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                file_size += len(chunk)
+                if file_size > MAX_FILE_SIZE:
+                    os.remove(temp_path)
+                    raise HTTPException(status_code=413, detail="File too large. Maximum 50MB allowed.")
+                buffer.write(chunk)
+
+        background_tasks.add_task(process_b2b_deep_scan, dev_user_id, temp_path, file.filename, input_text, start_time, end_user_id)
+        await log_api_call(dev_user_id, "/v3/api/deep-scan", 202, start_time, None, end_user_id)
+        return {"status": "processing", "message": "File accepted. Result will be dispatched to your Webhook."}
+    except HTTPException as e:
+        # 413 (file badi), 429 (rate limit), 401 (bad key) — actual code log karo
+        await log_api_call(dev_user_id, "/v3/api/deep-scan", e.status_code, start_time, None, end_user_id)
+        raise
+    except Exception as e:
+        await log_api_call(dev_user_id, "/v3/api/deep-scan", 500, start_time, None, end_user_id)
+        raise HTTPException(status_code=500, detail=f"Deep Scan Failed: {str(e)}")
 
 # ---> DASHBOARD ENDPOINTS (Secured by JWT Token for Frontend Access) <---
 @b2b_router.post("/dashboard/generate-key")
