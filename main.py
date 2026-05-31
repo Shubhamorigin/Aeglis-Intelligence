@@ -224,8 +224,12 @@ PLAN_LIMITS = {
 
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
-async def verify_developer_key(authorization: str = Depends(api_key_header)) -> str:
+async def verify_developer_key(authorization: str = Depends(api_key_header), request: Request = None) -> str:
     """B2B Security Guard: Extracts Dev ID, checks Quotas, and enforces strict Req/Sec"""
+    # endpoint name request se nikalo taaki log_api_call sahi endpoint save kare
+    endpoint = request.url.path if request else "/v3/api/unknown"
+    start_time = time.time()
+
     if not authorization:
         raise HTTPException(status_code=401, detail="API Key missing. Use 'Bearer sk_live_...'")
 
@@ -238,6 +242,7 @@ async def verify_developer_key(authorization: str = Depends(api_key_header)) -> 
     # 1. Verify API Key
     res = supabase_admin.table("api_keys").select("user_id, is_active").eq("key_hash", hashed_token).execute()
     if not res.data or not res.data[0]["is_active"]:
+        # 401 — key invalid, dev_user_id nahi mila so log nahi kar sakte, bas raise karo
         raise HTTPException(status_code=401, detail="Invalid or Inactive API Key")
 
     dev_user_id = res.data[0]["user_id"]
@@ -255,6 +260,7 @@ async def verify_developer_key(authorization: str = Depends(api_key_header)) -> 
 
     # 3. Monthly Quota Check (402 Payment Required)
     if usage >= limits["monthly_limit"]:
+        await log_api_call(dev_user_id, endpoint, 402, start_time)
         raise HTTPException(
             status_code=402, 
             detail=f"Quota Exceeded: {plan.upper()} limit of {limits['monthly_limit']:,} requests reached."
@@ -268,7 +274,8 @@ async def verify_developer_key(authorization: str = Depends(api_key_header)) -> 
     user_history = [timestamp for timestamp in user_history if now - timestamp < 1.0]
 
     if len(user_history) >= limits["req_per_sec"]:
-        RATE_LIMIT_STORE[dev_user_id] = user_history # Update cleaned history
+        RATE_LIMIT_STORE[dev_user_id] = user_history
+        await log_api_call(dev_user_id, endpoint, 429, start_time)
         raise HTTPException(
             status_code=429, 
             detail=f"Rate limit exceeded. Your {plan.upper()} plan allows {limits['req_per_sec']} req/sec."
