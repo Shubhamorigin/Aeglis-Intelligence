@@ -5,13 +5,12 @@ import json
 import csv
 import hashlib
 import threading
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
 from utils.supabase_db import supabase_admin
 from scan_url import run_url_scanner
 
 from datetime import datetime
-import whois
 import redis
 
 # ── REDIS SETUP ───────────────────────────────────────────────────────
@@ -49,15 +48,15 @@ LANGUAGE_NAMES = {
 
 
 
-# Cache WHOIS results to reduce repeated lookups during high traffic
+# Cache RDAP results to reduce repeated lookups during high traffic
 _DOMAIN_AGE_CACHE = {}
 
 def get_domain_age(domain: str) -> int | None:
-    """Return domain age in days using WHOIS.
+    """Return domain age in days using RDAP (Verisign).
 
     Returns:
         int  >= 0  : valid age in days
-        -1         : domain invalid, WHOIS returned no creation date, or unparseable date
+        -1         : domain invalid, RDAP returned no registration date, or unparseable date
         None       : transient error (network failure, rate limit) — DO NOT cache, retry later
     """
     if not domain:
@@ -70,44 +69,58 @@ def get_domain_age(domain: str) -> int | None:
     if domain in _DOMAIN_AGE_CACHE:
         return _DOMAIN_AGE_CACHE[domain]
 
-    # ── WHOIS LOOKUP ──────────────────────────────────────────────────────
+    # ── RDAP LOOKUP ───────────────────────────────────────────────────────
+    base_url = "https://rdap.verisign.com/com/v1/domain/"
+    url = urljoin(base_url, domain)
+
     try:
-        w = whois.whois(domain)
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            # Transient: server error, rate-limited, etc.
+            # DO NOT cache — caller should treat None as "unknown, try again later."
+            print(f"[RDAP] Server returned {response.status_code} for '{domain}'")
+            return None
+
+        data = response.json()
+
     except Exception as e:
-        # Transient: network down, rate-limited, timeout, etc.
-        # DO NOT cache — caller should treat None as "unknown, try again later."
-        print(f"[WHOIS] Transient error for '{domain}': {e}")
+        # Transient: network down, timeout, etc.
+        print(f"[RDAP] Transient error for '{domain}': {e}")
         return None
 
-    # ── EXTRACT creation_date ─────────────────────────────────────────────
-    created = getattr(w, 'creation_date', None)
-
-    # Some registrars return a list; take the earliest date
-    if isinstance(created, list):
-        created = created[0] if created else None
-
-    if not created:
-        # WHOIS succeeded but data genuinely missing → safe to cache as -1
+    # ── EXTRACT registration date ─────────────────────────────────────────
+    if "events" not in data:
+        # RDAP succeeded but structure changed — safe to cache as -1
         _DOMAIN_AGE_CACHE[domain] = -1
         return -1
 
-    # ── NORMALISE TO NAIVE datetime ───────────────────────────────────────
-    if not isinstance(created, datetime):
-        # Fallback: WHOIS lib returned a string (e.g. "2020-03-15 00:00:00")
-        # strptime is more forgiving than fromisoformat for WHOIS quirks
-        try:
-            created = datetime.strptime(str(created).split(' ')[0], '%Y-%m-%d')
-        except ValueError:
-            _DOMAIN_AGE_CACHE[domain] = -1
-            return -1
+    raw_date = None
+    for event in data["events"]:
+        if event.get("eventAction") == "registration":
+            raw_date = event.get("eventDate")  # e.g. "1997-09-15T04:00:00Z"
+            break
 
-    # Strip tz info so datetime.now() subtraction never raises TypeError
-    if created.tzinfo is not None:
-        created = created.replace(tzinfo=None)
+    if not raw_date:
+        # RDAP responded but registration date genuinely missing
+        _DOMAIN_AGE_CACHE[domain] = -1
+        return -1
 
-    # ── CALCULATE + CACHE ─────────────────────────────────────────────────
-    age_days = (datetime.now() - created).days
+    # ── PARSE + CALCULATE ────────────────────────────────────────────────
+    try:
+        clean_date_str = raw_date[:10]  # "YYYY-MM-DD"
+        creation_date = datetime.strptime(clean_date_str, "%Y-%m-%d")
+    except ValueError:
+        _DOMAIN_AGE_CACHE[domain] = -1
+        return -1
+
+    age_days = (datetime.now() - creation_date).days
     _DOMAIN_AGE_CACHE[domain] = age_days
+    print(f"[Domain Age] {domain} - {age_days} days")
     return age_days
 
 
