@@ -683,7 +683,12 @@ async def Aeglis_master_scan(user_input, lang="en"):
         base_domain = get_base_domain(pure_domain)
 
         # ── DOMAIN AGE CHECK ──────────────────────────────────────────
-        age_days = get_domain_age(pure_domain)
+        # RDAP lookup should use the registrable/base domain, not a subdomain.
+        # Example: invite.p77eee.com -> p77eee.com
+        # We compute base_domain BEFORE this check, from pure_domain.
+        age_domain_target = get_base_domain(pure_domain) or pure_domain
+        age_days = get_domain_age(age_domain_target)
+
         if age_days is None:
             intel_context.append("Domain age: unknown (WHOIS lookup failed, treat as unverified)")
         elif age_days == -1:
@@ -692,6 +697,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
             intel_context.append(f"Domain age: {age_days} days")
             if age_days < 7:
                 intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
+
 
         # ── WHITELIST CHECK (Step 2 — only for mixed inputs now) ─────────
         # Pure whitelisted URLs return karo Step 0A se pehle hi.
