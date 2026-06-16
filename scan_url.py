@@ -178,13 +178,7 @@ async def detonate_url(target_url: str) -> dict:
 
             page.on("response", handle_response)
 
-            # ── FINAL URL CAPTURE (post-load) ─────────────────────────────────
-            page.on("load", lambda _: asyncio.create_task(
-                asyncio.coroutine(lambda: final_urls.append(page.url))()
-                if False else  # placeholder — handled below after goto
-                asyncio.sleep(0)
-            ))
-
+    
             # ═══════════════════════════════════════════════════════════════════
             # MAIN EXECUTION
             # ═══════════════════════════════════════════════════════════════════
