@@ -506,7 +506,7 @@ def scan_alienvault(indicator: str, indicator_type: str = "file"):
                 return {
                     "risk_level": "DANGER",
                     "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # BRANDING
-                    "type": "AEglis_DEEP_INTEL"
+                    "type": "Aeglis_DEEP_INTEL"
                 }
                 
         return {"risk_level": "SAFE", "reason": "No major threat records found on Aeglis Deep-Intel Network.", "type": "Aeglis_DEEP_INTEL"}
@@ -555,7 +555,7 @@ Reason must be in {target_language}.
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama-4-scout-17b-16e-instruct",
         "messages": [
             {"role": "system", "content": "You are a professional cybersecurity expert responding strictly in JSON."},
             {
