@@ -800,7 +800,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
         "Analyze for: social engineering, fake offers, "
         "urgency tactics, phishing language, scam patterns."
     )
-    result = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang="en")
+    result = scan_groq_ai(user_input, context_flag=" | ".join(intel_context), lang=lang)
     # Pure text Redis mein NAHI save karte — har user ka text unique hota hai,
     # caching koi fayda nahi aur sensitive data Redis mein nahi chahiye.
     return result
