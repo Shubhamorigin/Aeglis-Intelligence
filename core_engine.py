@@ -304,7 +304,7 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
             json={
-                "model": "openai/gpt-oss-20b",
+                "model": "llama-3.3-70b-versatile",
                 "messages": [{
                     "role": "user",
                     "content": (
@@ -454,7 +454,7 @@ Reply ONLY in this JSON format:
 """
     
     payload = {
-        "model": "openai/gpt-oss-20b",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": prompt}, 
             {"role": "user", "content": f"Input to scan: {text_message}"}
