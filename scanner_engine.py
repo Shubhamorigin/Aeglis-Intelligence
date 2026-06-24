@@ -240,7 +240,7 @@ class AeglisEngine:
                         f'Return ONLY: {{"suspicion_score": <number>, "reason": "<brief>"}}'
                     )}
                 ],
-                model="openai/gpt-oss-20b",
+                model="openai/gpt-oss-120b",
                 response_format={"type": "json_object"}
             )
             data  = json.loads(completion.choices[0].message.content)
@@ -645,7 +645,7 @@ class AeglisEngine:
                                 f"explaining why this script is dangerous."
                             )
                         }],
-                        model="openai/gpt-oss-20b",
+                        model="openai/gpt-oss-120b",
                         max_tokens=150,
                         temperature=0.2
                     )
@@ -1065,7 +1065,7 @@ class AeglisEngine:
                                 f"Risk score: {risk_score}/100\n\n"
                                 f"Write 1-2 line warning in {target_lang} for non-technical user."
                             )}],
-                            model="openai/gpt-oss-20b",
+                            model="openai/gpt-oss-120b",
                             max_tokens=120,
                             temperature=0.2
                         )
