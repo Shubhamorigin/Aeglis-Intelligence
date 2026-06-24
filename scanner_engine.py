@@ -1137,7 +1137,7 @@ class AeglisEngine:
                         "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]
                     }
                 ],
-                model="meta-llama/qwen/qwen3.6-27b",
+                model="qwen/qwen3.6-27b",
                 response_format={"type": "json_object"}
             )
 
