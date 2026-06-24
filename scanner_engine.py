@@ -240,7 +240,7 @@ class AeglisEngine:
                         f'Return ONLY: {{"suspicion_score": <number>, "reason": "<brief>"}}'
                     )}
                 ],
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-20b",
                 response_format={"type": "json_object"}
             )
             data  = json.loads(completion.choices[0].message.content)
@@ -645,7 +645,7 @@ class AeglisEngine:
                                 f"explaining why this script is dangerous."
                             )
                         }],
-                        model="llama-3.3-70b-versatile",
+                        model="openai/gpt-oss-20b",
                         max_tokens=150,
                         temperature=0.2
                     )
@@ -1065,7 +1065,7 @@ class AeglisEngine:
                                 f"Risk score: {risk_score}/100\n\n"
                                 f"Write 1-2 line warning in {target_lang} for non-technical user."
                             )}],
-                            model="llama-3.3-70b-versatile",
+                            model="openai/gpt-oss-20b",
                             max_tokens=120,
                             temperature=0.2
                         )
@@ -1137,7 +1137,7 @@ class AeglisEngine:
                         "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]
                     }
                 ],
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                model="meta-llama/qwen/qwen3.6-27b",
                 response_format={"type": "json_object"}
             )
 
