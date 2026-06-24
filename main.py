@@ -337,7 +337,7 @@ async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
                 {"role": "system", "content": "You are a professional cybersecurity expert responding strictly in JSON."},
                 {"role": "user", "content": prompt}
             ],
-            model="openai/gpt-oss-20b",
+            model="openai/gpt-oss-120b",
             response_format={"type": "json_object"}
         )
         return json.loads(completion.choices[0].message.content)
