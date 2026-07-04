@@ -117,30 +117,37 @@ def ai_classify_input(user_input: str) -> dict:
                 "temperature": 0.0,
                 "max_tokens": 300,
                 "stream": False,
+                "extra_body": {"thinking": False}
             },
             timeout=8
         )
 
         if response.status_code == 200:
             resp_json = response.json()
-            print(f"[Classifier DEBUG] full response: {str(resp_json)[:400]}")
             choices = resp_json.get("choices", [])
             if not choices:
                 print("[Classifier] No choices in response")
                 raise ValueError("Empty choices")
             msg = choices[0].get("message", {})
             raw = (msg.get("content") or msg.get("reasoning_content") or "").strip()
-            print(f"[Classifier DEBUG] raw response: {repr(raw[:300])}")
-            # Strip markdown backticks if model wraps in ```json ... ```
+
+            # Strip <think>...</think> block — qwen3.6-27b thinking mode
+            import re as _re
+            raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
+
+            # Strip markdown backticks
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
-            # Extract JSON if model added extra text before/after
-            import re as _re
-            json_match = _re.search(r"[{].*[}]", raw, _re.DOTALL)
+                raw = raw.strip()
+
+            # Extract JSON object — handles extra text before/after
+            json_match = _re.search(r"[{][^{}]*[}]", raw, _re.DOTALL)
             if json_match:
                 raw = json_match.group(0)
+
+            print(f"[Classifier DEBUG] cleaned: {repr(raw[:200])}")
             result = json.loads(raw.strip())
             print(f"[Classifier] {result.get('type')} | "
                   f"confidence={result.get('confidence')} | "
