@@ -822,7 +822,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
                 )
                 risk_level = result.get("risk_level", "WARNING")
                 reason_en  = result.get("reason", "")
-                if risk_level in REDIS_TTL:
+                if risk_level in REDIS_TTL and not is_mixed:
                     result["reason"] = _save_to_redis_and_background_translate(
                         base_key, risk_level, reason_en, lang
                     )
@@ -917,7 +917,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
         risk_level = final.get("risk_level", "WARNING")
         reason_en  = final.get("reason", "")
-        if risk_level in REDIS_TTL and reason_en:
+        if risk_level in REDIS_TTL and reason_en and not is_mixed:
             final["reason"] = _save_to_redis_and_background_translate(
                 base_key, risk_level, reason_en, lang
             )
