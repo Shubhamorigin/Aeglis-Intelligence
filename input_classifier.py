@@ -109,19 +109,27 @@ def ai_classify_input(user_input: str) -> dict:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "openai/gpt-oss-20b",
+                "model": "qwen/qwen3.6-27b",
                 "messages": [
                     {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
                     {"role": "user", "content": f"Classify this input and return ONLY a valid JSON object with no markdown, no backticks, no explanation:\n\n{user_input}"}
                 ],
                 "temperature": 0.0,
-                "max_tokens": 200,
+                "max_tokens": 300,
+                "stream": False,
             },
             timeout=8
         )
 
         if response.status_code == 200:
-            raw = response.json()["choices"][0]["message"]["content"].strip()
+            resp_json = response.json()
+            print(f"[Classifier DEBUG] full response: {str(resp_json)[:400]}")
+            choices = resp_json.get("choices", [])
+            if not choices:
+                print("[Classifier] No choices in response")
+                raise ValueError("Empty choices")
+            msg = choices[0].get("message", {})
+            raw = (msg.get("content") or msg.get("reasoning_content") or "").strip()
             print(f"[Classifier DEBUG] raw response: {repr(raw[:300])}")
             # Strip markdown backticks if model wraps in ```json ... ```
             if raw.startswith("```"):
