@@ -117,7 +117,6 @@ def ai_classify_input(user_input: str) -> dict:
                 "temperature": 0.0,
                 "max_tokens": 300,
                 "stream": False,
-                "extra_body": {"thinking": False}
             },
             timeout=8
         )
