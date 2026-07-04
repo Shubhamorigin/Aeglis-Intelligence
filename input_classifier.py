@@ -122,11 +122,17 @@ def ai_classify_input(user_input: str) -> dict:
 
         if response.status_code == 200:
             raw = response.json()["choices"][0]["message"]["content"].strip()
+            print(f"[Classifier DEBUG] raw response: {repr(raw[:300])}")
             # Strip markdown backticks if model wraps in ```json ... ```
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
+            # Extract JSON if model added extra text before/after
+            import re as _re
+            json_match = _re.search(r"[{].*[}]", raw, _re.DOTALL)
+            if json_match:
+                raw = json_match.group(0)
             result = json.loads(raw.strip())
             print(f"[Classifier] {result.get('type')} | "
                   f"confidence={result.get('confidence')} | "
