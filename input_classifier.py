@@ -2,6 +2,8 @@ import re
 import os
 import json
 import requests
+from dotenv import load_dotenv
+load_dotenv()  # Yeh missing tha
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
