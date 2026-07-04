@@ -109,7 +109,7 @@ def ai_classify_input(user_input: str) -> dict:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "qwen/qwen3.6-27b",
+                "model": "openai/gpt-oss-120b",
                 "messages": [
                     {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
                     {"role": "user", "content": f"Classify this input and return ONLY a valid JSON object with no markdown, no backticks, no explanation:\n\n{user_input}"}
