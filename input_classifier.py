@@ -115,8 +115,7 @@ def ai_classify_input(user_input: str) -> dict:
                     {"role": "user", "content": f"Classify this input and return ONLY a valid JSON object with no markdown, no backticks, no explanation:\n\n{user_input}"}
                 ],
                 "temperature": 0.0,
-                "max_tokens": 300,
-                "stream": False,
+                "stream": False
             },
             timeout=8
         )
