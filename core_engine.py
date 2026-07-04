@@ -305,7 +305,7 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
             json={
-                "model": "openai/gpt-oss-120b",
+                "model": "openai/gpt-oss-20b",
                 "messages": [{
                     "role": "user",
                     "content": (
