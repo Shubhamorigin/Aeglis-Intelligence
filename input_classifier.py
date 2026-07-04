@@ -3,7 +3,7 @@ import os
 import json
 import requests
 from dotenv import load_dotenv
-load_dotenv()  # Yeh missing tha
+load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
@@ -112,19 +112,22 @@ def ai_classify_input(user_input: str) -> dict:
                 "model": "openai/gpt-oss-20b",
                 "messages": [
                     {"role": "system", "content": CLASSIFIER_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Classify this input:\n\n{user_input}"}
+                    {"role": "user", "content": f"Classify this input and return ONLY a valid JSON object with no markdown, no backticks, no explanation:\n\n{user_input}"}
                 ],
                 "temperature": 0.0,
-                "max_tokens": 120,
-                "response_format": {"type": "json_object"}
+                "max_tokens": 200,
             },
             timeout=8
         )
 
         if response.status_code == 200:
-            result = json.loads(
-                response.json()["choices"][0]["message"]["content"]
-            )
+            raw = response.json()["choices"][0]["message"]["content"].strip()
+            # Strip markdown backticks if model wraps in ```json ... ```
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            result = json.loads(raw.strip())
             print(f"[Classifier] {result.get('type')} | "
                   f"confidence={result.get('confidence')} | "
                   f"{result.get('reasoning', '')}")
