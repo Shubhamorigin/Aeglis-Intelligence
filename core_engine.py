@@ -432,27 +432,31 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
         return {"risk_level": "ERROR", "reason": "Aeglis Intelligence Key missing.", "type": "TEXT"}
 
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    
+
     prompt = f"""
-You are 'Aeglis', an elite AI cybersecurity guard.
-Analyze the following user input and context for scams, phishing, or social engineering.
-
-[THREAT INTELLIGENCE & SANDBOX CONTEXT]
-Previous Scanners found: {context_flag if context_flag else "No external intel. Rely on text analysis."}
-
-STRICT RULES — OVERRIDE EVERYTHING (Domain Age + Redirect):
-1. Domain age rule:
-   - If context contains "Very new domain (< 7 days)" => at least risk_level="WARNING".
-   - If context also contains ANY other suspicious signal (Redirect chain/JS Behavior/Sandbox Page Text with login/OTP/fake money) => ALWAYS return risk_level="DANGER".
-2. Redirect rule: If context contains "Redirect chain" => at least risk_level="WARNING".
-3. Whitelist rule: If context contains "verified by Aeglis Zero-Latency Trust" or "WHITELISTED" => return risk_level="SAFE" unless context also contains strong malicious cues (credentials lure/OTP theft/fake money/lottery/urgent panic).
-4. ZERO-DAY social engineering: If context contains fake money promises (free money / lottery winner / download to earn / fake giveaway) => ALWAYS return risk_level="DANGER".
-5. BRANDING: You MUST NEVER mention 'Google', 'VirusTotal', 'Playwright', or 'WebRisk'. Always attribute findings to 'Aeglis SafeLink Engine', 'Aeglis Dynamic Sandbox', or 'Aeglis Autopsy Sandbox'.
-6. CRITICAL TRANSLATION: reason MUST be in {target_language} only. Do not output the reason in any other language.
-
-Reply ONLY in this JSON format:
-{{"risk_level": "DANGER"|"WARNING"|"SAFE", "reason": "2-3 lines explaining the final verdict to the user."}}
-"""
+    You are 'Aeglis', an elite AI cybersecurity guard.
+    Analyze the following user input and context for scams, phishing, or social engineering.
+    [THREAT INTELLIGENCE & SANDBOX CONTEXT]
+    Previous Scanners found: {context_flag if context_flag else "No external intel. Rely on text analysis."}
+    STRICT RULES — OVERRIDE EVERYTHING (Domain Age + Redirect):
+    1. Domain age rule:
+       - If context contains "Very new domain (< 7 days)" => at least risk_level="WARNING".
+       - If context also contains ANY other suspicious signal (Redirect chain/JS Behavior/Sandbox Page Text with login/OTP/fake money) => ALWAYS return risk_level="DANGER".
+    2. Redirect rule: If context contains "Redirect chain" => at least risk_level="WARNING".
+    3. Whitelist rule: If context contains "verified by Aeglis Zero-Latency Trust" or "WHITELISTED" => return risk_level="SAFE" unless context also contains strong malicious cues (credentials lure/OTP theft/fake money/lottery/urgent panic).
+    4. ZERO-DAY social engineering: If context contains fake money promises (free money / lottery winner / download to earn / fake giveaway) => ALWAYS return risk_level="DANGER".
+    5. GAMBLING & PREDATORY PLATFORMS — mark WARNING:
+       - Unrealistic daily earning claims on page text (₹50,000+/day, "earn daily", "earn ₹X,XX,XXX") => risk_level="WARNING".
+       - Online casino / betting / gaming platforms asking for Indian phone numbers (+91) on landing page => risk_level="WARNING".
+       - Gambling game names detected in page text ("Aviator", "7UP 7DOWN", "Mines", "Spin", "Lucky Wheel", "Squid Game", "Money Coming") => risk_level="WARNING".
+       - Referral/invite systems with instant cash rewards ("invite a friend earn ₹500") on landing page => risk_level="WARNING".
+       - Prize wheel or lucky draw with phone number collection => risk_level="WARNING".
+       - NOTE: These are predatory platforms, not phishing. Mark WARNING not DANGER unless credential harvesting is also present.
+    6. BRANDING: You MUST NEVER mention 'Google', 'VirusTotal', 'Playwright', or 'WebRisk'. Always attribute findings to 'Aeglis SafeLink Engine', 'Aeglis Dynamic Sandbox', or 'Aeglis Autopsy Sandbox'.
+    7. CRITICAL TRANSLATION: reason MUST be in {target_language} only. Do not output the reason in any other language.
+    Reply ONLY in this JSON format:
+    {{"risk_level": "DANGER"|"WARNING"|"SAFE", "reason": "2-3 lines explaining the final verdict to the user."}}
+    """
     
     payload = {
         "model": "openai/gpt-oss-120b",
