@@ -21,4 +21,5 @@ python-Levenshtein
 redis
 oletools
 pefile
+qrcode[pil]
 apscheduler
