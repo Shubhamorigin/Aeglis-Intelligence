@@ -39,6 +39,12 @@ import io
 import csv
 from datetime import datetime, timedelta , timezone
 from apscheduler.schedulers.background import BackgroundScheduler
+# ── BILLING ROUTER ────────────────────────────────────────────────────────────
+import io as _bio
+import base64 as _b64
+import qrcode
+from pydantic import Field
+
 
 
 # =====================================================================
@@ -711,6 +717,124 @@ async def get_csv_reports(request: Request, current_user_id: str = Depends(get_c
         print(f"Report fetch error: {e}")
         raise HTTPException(status_code=500, detail="Could not fetch compliance reports.")
 
+
+
+# =====================================================================
+# BILLING ROUTER (UPI Payment Intent + UTR Submission)
+# =====================================================================
+
+billing_router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
+
+# Plan slug → profile type + amount mapping
+_BILLING_MATRIX = {
+    "starter_guard":    {"profile": "consumer",  "amount": "29.00",   "label": "Starter Guard"},
+    "pro_guard":        {"profile": "consumer",  "amount": "199.00",  "label": "Aeglis Pro"},
+    "api_startup":      {"profile": "developer", "amount": "2999.00", "label": "Startup Engine API"},
+    "business_pro":     {"profile": "developer", "amount": "9999.00", "label": "Business Pro API"},
+}
+
+_UPI_VPA = "aeglis@ptaxis"
+
+class UtrSubmission(BaseModel):
+    profile_type: str
+    plan_slug:    str
+    amount:       float
+    utr_number:   str = Field(..., min_length=12, max_length=12, pattern=r"^\d{12}$")
+
+@billing_router.post("/generate-intent")
+async def generate_payment_intent(
+    request: Request,
+    current_user_id: str = Depends(get_current_user),
+    _: bool = Depends(verify_consumer_origin)
+):
+    """
+    Generates a UPI payment intent (QR + deep link) for the given plan.
+    Frontend calls this when user clicks Buy on pricing page.
+    Body: { plan_slug: str, profile_type: str }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    plan_slug    = (body.get("plan_slug") or "").lower().strip()
+    profile_type = (body.get("profile_type") or "consumer").lower().strip()
+
+    plan_info = _BILLING_MATRIX.get(plan_slug)
+    if not plan_info:
+        raise HTTPException(status_code=400, detail=f"Unknown plan: {plan_slug}")
+
+    amount    = plan_info["amount"]
+    # Short user id prefix for reference note (first 6 chars, safe)
+    uid_short = current_user_id[:6].replace("-", "")
+    txn_note  = f"AEG_{profile_type[0].upper()}_{uid_short}_{plan_slug[:8]}"
+
+    upi_string = (
+        f"upi://pay?pa={_UPI_VPA}"
+        f"&pn=Aeglis"
+        f"&am={amount}"
+        f"&cu=INR"
+        f"&tn={txn_note}"
+    )
+
+    # QR code generation
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(upi_string)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = _bio.BytesIO()
+    img.save(buf, format="PNG")
+    qr_b64 = _b64.b64encode(buf.getvalue()).decode("utf-8")
+
+    return {
+        "status":                  "success",
+        "exact_amount":            amount,
+        "matching_reference_note": txn_note,
+        "upi_url":                 upi_string,
+        "qr_image_data":           f"data:image/png;base64,{qr_b64}",
+    }
+
+
+@billing_router.post("/submit-utr", status_code=201)
+async def submit_transaction_utr(
+    payload: UtrSubmission,
+    current_user_id: str = Depends(get_current_user),
+    _: bool = Depends(verify_consumer_origin)
+):
+    """
+    Receives UTR after user completes UPI payment.
+    Logs to billing_ledger table with PENDING_VALIDATION status.
+    """
+    try:
+        if supabase:
+            supabase_admin.table("billing_ledger").insert({
+                "user_id":       current_user_id,  # JWT se — frontend trust nahi
+                "profile_type":  payload.profile_type.upper(),
+                "plan_slug":     payload.plan_slug.lower(),
+                "billed_amount": payload.amount,
+                "utr_reference": payload.utr_number,
+                "ledger_status": "PENDING_VALIDATION"
+            }).execute()
+
+        return {
+            "status":  "success",
+            "message": "Transaction reference logged. Processing infrastructure activation."
+        }
+
+    except Exception as e:
+        err = str(e).lower()
+        if "duplicate key" in err or "unique" in err:
+            raise HTTPException(status_code=400, detail="This UTR has already been submitted.")
+        print(f"Billing UTR Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal ledger recording failure")
+
+app.include_router(billing_router)
 
 app.include_router(b2b_router)
 
