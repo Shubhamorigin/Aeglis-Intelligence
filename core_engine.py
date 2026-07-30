@@ -538,60 +538,35 @@ async def scan_groq_visual_for_phishing(screenshot_b64: str, target_url: str, la
 
     url = "https://api.groq.com/openai/v1/chat/completions"
 
-    prompt = f"""
-You are an expert Cybersecurity Visual Threat Engine for Aeglis. Your sole objective is to analyze website screenshots alongside their URLs to detect phishing, visual impersonation, credential harvesting, and deceptive scam lures with maximum precision.
+prompt = f"""
+You are an expert Cybersecurity Visual Threat Engine for Aeglis. Analyze website screenshots and URLs for phishing, illegal gambling/betting traps, and deceptive financial lures.
 
 TARGET URL: {target_url}
 
 ======================================================================
-1. MANDATORY MULTI-MODAL ANALYSIS PIPELINE
-======================================================================
-Step A: IMAGE & OCR SCANNING
-- Read ALL visible text, including text embedded inside images, banners, popups, and buttons (e.g., "Get Up To ₹40,000", "Instant Loan", "Claim Reward").
-- Identify all logos, badges, and visual brand assets.
-
-Step B: DOMAIN VS. BRAND MATCHING
-- Compare the visual identity (brand logos, color schemes, UI structure) against the TARGET URL hostname.
-- Ask: Does the domain logically match the brand displayed? (e.g., HDFC UI on `hdfcbank.com` = LEGIT | HDFC UI on `free-loans-xyz.net` = PHISHING).
-
-Step C: INTENT EVALUATION (FOR UNBRANDED SCAMS)
-- Look for generic scam tactics that do NOT use famous logos:
-  * Unrealistic financial promises (free money, instant loans, lottery wins, high returns).
-  * Data/Credential harvesting forms asking for Phone Numbers, OTPs, UPI IDs, Passwords, or Bank Details in exchange for a lure/offer.
-  * Fake security alerts, fake CAPTCHAs, or fake "Update Windows" screens.
-
-======================================================================
-2. STRICT CLASSIFICATION MATRIX
+STRICT CLASSIFICATION MATRIX
 ======================================================================
 
 🔴 DANGER (High Risk / Active Threat)
-Trigger ANY of these conditions:
 1. Brand Impersonation: Displaying UI/Logos of known brands (SBI, HDFC, Amazon, PayPal, Google, Govt services, etc.) on an UNRELATED domain.
-2. Unbranded Financial/Data Harvesting Scam: Promising monetary rewards, instant loans, or free gifts AND providing input fields for Phone/OTP/Bank details.
+2. Unbranded Financial/Data Harvesting Scam: Promising monetary rewards, instant loans, or free gifts AND asking for Phone/OTP/Bank details.
 3. Malicious UI Traps: Fake CAPTCHA, fake technical support popups, or fake browser system errors.
-4. Credential Harvesting: Unexplained password or payment inputs on suspicious, unverified, or masked domains.
 
 🟡 WARNING (Medium Risk / Exercise Caution)
-Trigger ANY of these conditions:
-1. Aggressive or misleading marketing tactics (e.g., extreme countdown timers, misleading "Winner" banners) WITHOUT explicit credential/OTP harvesting.
-2. Suspiciously broken page layouts, parked domains, or domain sales pages containing ambiguous redirection links.
-3. Inconclusive visual evidence where risk indicators are present but insufficient for a definitive DANGER rating.
+1. GAMBLING, CASINO & PREDATORY PLATFORMS:
+   - Visual banners claiming unrealistic earnings ("Earn daily ₹400,000", "Earn ₹50,000/day", "Play and win cash").
+   - Presence of online casino / betting game cards (e.g., Aviator, Mines, 7Up 7Down, 3 Patti, Roulette, Slots, Money Coming).
+   - Prompts asking users to deposit money to earn instant high returns.
+2. Aggressive/Misleading Marketing: Countdown timers, "You won a prize" popups without direct credential theft.
+3. Parked domains or suspicious redirections.
 
 🟢 SAFE (Low Risk / Legitimate Site)
-Trigger ALL of these conditions:
-1. Legitimate E-Commerce / Niche Businesses: Standard online stores (including adult products, specialized tools, or new local businesses) with normal shopping carts and checkout links.
-2. Legitimate Brand Sites: Official login portals or landing pages where the domain matches the brand identity.
-3. General Informational Pages: Blogs, documentation, corporate sites, or landing pages without deceptive lures or credential traps.
+1. Legitimate E-Commerce / Niche Businesses with normal shopping carts.
+2. Official Brand Sites where domain matches brand identity.
+3. Blogs, corporate sites, or standard web applications.
 
 ======================================================================
-3. ANTI-HALLUCINATION & PRECISION RULES
-======================================================================
-- RULE 1 (No Niche Discrimination): DO NOT mark a site DANGER/WARNING simply because it is unpopular, sells niche/adult items, or is built on standard templates (Shopify, WooCommerce, WordPress). Lack of traffic is NOT a security threat.
-- RULE 2 (OCR Text is Critical): Text embedded in images MUST be treated with equal weight to HTML text. Scam banners inside images are primary threats.
-- RULE 3 (No False Positives on Normal Logins): Standard "Sign In" forms on normal, domain-matched websites are SAFE.
-
-======================================================================
-4. REQUIRED OUTPUT FORMAT
+REQUIRED OUTPUT FORMAT
 ======================================================================
 Analyze strictly and respond ONLY in valid JSON format.
 
