@@ -538,7 +538,7 @@ async def scan_groq_visual_for_phishing(screenshot_b64: str, target_url: str, la
 
     url = "https://api.groq.com/openai/v1/chat/completions"
 
-prompt = f"""
+    prompt = f"""
 You are an expert Cybersecurity Visual Threat Engine for Aeglis. Analyze website screenshots and URLs for phishing, illegal gambling/betting traps, and deceptive financial lures.
 
 TARGET URL: {target_url}
