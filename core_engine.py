@@ -296,9 +296,10 @@ def redis_set(base_key: str, lang: str, risk_level: str, reason: str):
         print(f"⚠️ Redis SET error: {e}")
 
 def translate_reason_sync(reason_en: str, lang: str) -> str:
-    """English reason ko target language mein translate karo — sirf reason, risk_level nahi."""
+    """English reason ko target language mein translate karo."""
     if lang == "en" or not reason_en:
         return reason_en
+    
     target_lang = LANGUAGE_NAMES.get(lang, "English")
     try:
         resp = requests.post(
@@ -306,24 +307,42 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
             json={
                 "model": "openai/gpt-oss-20b",
-                "messages": [{
-                    "role": "user",
-                    "content": (
-                        f"Translate this cybersecurity warning to {target_lang}. "
-                        f"Return ONLY the translated text, no quotes, no explanation:\n\n{reason_en}"
-                    )
-                }],
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            f"You are a strict translation API. Translate the input to {target_lang}. "
+                            "Output EXACTLY the translated text and nothing else. No quotes, no intro, no explanation."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": reason_en
+                    }
+                ],
                 "temperature": 0.1,
-                "max_tokens": 200
+                "max_tokens": 512  # Breathing room badha diya taaki cut na ho
             },
             timeout=15
         )
+        
         if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            translated_text = resp.json()["choices"][0]["message"]["content"].strip()
+            
+            # Agar output cut hone ki wajah se ya glitch se khali aaya, toh English return kar do
+            if translated_text:
+                return translated_text
+            else:
+                print(f"⚠️ [TRANSLATE] Empty translation for {lang}. Using English fallback.")
+                return reason_en
+        else:
+            print(f"⚠️ [TRANSLATE] API Error ({lang}): {resp.status_code} - {resp.text}")
+            
     except Exception as e:
-        print(f"⚠️ Translate error ({lang}): {e}")
-    return reason_en  # fallback
-
+        print(f"⚠️ [TRANSLATE] Exception for ({lang}): {e}")
+        
+    return reason_en  # Fallback
+    
 def background_translate_and_cache(base_key: str, risk_level: str, reason_en: str, skip_lang: str):
     """
     Daemon thread mein baaki 5 languages translate karke Redis mein store karo.
