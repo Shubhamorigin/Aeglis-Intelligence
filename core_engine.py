@@ -322,7 +322,7 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
                     }
                 ],
                 "temperature": 0.1,
-                "max_tokens": 1536 # Breathing room badha diya taaki cut na ho
+                "max_tokens": 1024 # Breathing room badha diya taaki cut na ho
             },
             timeout=15
         )
