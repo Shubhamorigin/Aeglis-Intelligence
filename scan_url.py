@@ -185,8 +185,14 @@ async def detonate_url(target_url: str) -> dict:
 
             # ── 1. NAVIGATE ───────────────────────────────────────────────────
             # 6000ms: balanced — handles slow legit sites, exits fast on tarpits
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=6000)
-
+            try:
+                # Timeout thoda badha kar 8000ms kar diya
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=8000)
+            except Exception as e:
+                # Agar timeout ho jaye, toh script ko rokna nahi hai! 
+                # Hum silently pass karenge taaki bacha-kucha screenshot aa jaye.
+                print(f"[Sandbox] Timeout or loading delay on {target_url}, capturing partial load...")
+                pass
             # Capture post-navigation URL (handles js redirects)
             try:
                 final_urls.append(page.url)
