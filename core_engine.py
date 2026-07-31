@@ -607,19 +607,25 @@ Reason must be in {target_language}.
         "response_format": {"type": "json_object"},
     }
 
+    print("\n[DEBUG - VISION API] 📡 Sending POST request to Groq API...")
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
+        print(f"[DEBUG - VISION API] 📥 Received HTTP Status: {response.status_code}")
         if response.status_code == 200:
             result = json.loads(response.json()["choices"][0]["message"]["content"])
+            print("[DEBUG - VISION API] ✅ Successfully parsed JSON response.")
             return {
                 "risk_level": result.get("risk_level", "WARNING"),
                 "reason": result.get("reason", "Analyzed by visual AI."),
                 "type": "VISUAL_AGGREGATED",
             }
         else:
-            print(f"⚠️ Groq API Error: {response.status_code} - {response.text}")
+            print(f"[DEBUG - VISION API] ❌ API HTTP Error: {response.status_code}")
+            print(f"[DEBUG - VISION API] ❌ API Error Body: {response.text}")
+            return None
     except Exception as e:
-        print(f"⚠️ Groq Vision Request Failed: {e}")
+        print(f"[DEBUG - VISION API] ❌ API Request Crashed (Timeout or Network): {e}")
+        return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PATCH — core_engine.py
@@ -749,6 +755,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
     if is_cacheable:
         redis_cached = redis_get(base_key, lang)
+        print(f"[DEBUG - CACHE] 🗄️ Redis lookup for key='{base_key}' lang='{lang}' → {'HIT' if redis_cached else 'MISS'}")
         if redis_cached:
             return {
                 "risk_level": redis_cached["risk_level"],
@@ -865,10 +872,12 @@ async def Aeglis_master_scan(user_input, lang="en"):
         webrisk_res = scan_webrisk(target_url)
         intel_context.append(f"Aeglis SafeLink Engine: {webrisk_res}")
 
-        print(f"Launching Aeglis Dynamic Sandbox: {target_url}")
+        print(f"\n[DEBUG - ENGINE] 🚀 Launching Aeglis Dynamic Sandbox: {target_url}")
         try:
             sandbox_res = await run_url_scanner(target_url)
+            print(f"[DEBUG - ENGINE] 📦 Sandbox Status Returned: {sandbox_res.get('status')}")
         except Exception as sandbox_exc:
+            print(f"[DEBUG - ENGINE] ❌ Sandbox Crashed: {sandbox_exc}")
             intel_context.append(f"Sandbox Error: {sandbox_exc}")
             sandbox_res = {"status": "failed", "error_message": str(sandbox_exc)}
 
@@ -895,10 +904,15 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
             screenshot_b64 = sandbox_res.get("screenshot_base64")
             if screenshot_b64:
+                print(f"[DEBUG - ENGINE] 👁️ Passing Screenshot to Vision AI (Size: {len(screenshot_b64)} chars)...")
                 visual_res = await scan_groq_visual_for_phishing(
                     screenshot_b64, target_url, lang="en"
                 )
+                print(f"[DEBUG - ENGINE] 🧠 Vision AI Final Result: {visual_res}")
+            else:
+                print("[DEBUG - ENGINE] ⚠️ Sandbox status was 'success', but screenshot_base64 was MISSING!")
         else:
+            print(f"[DEBUG - ENGINE] 🚫 Skipping Vision AI because Sandbox failed! Error: {sandbox_res.get('error_message')}")
             intel_context.append(
                 f"Sandbox Error: {sandbox_res.get('error_message')}"
             )
