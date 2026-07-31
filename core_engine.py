@@ -574,24 +574,40 @@ Return ONLY JSON: {{"risk_level": "SAFE"|"WARNING"|"DANGER", "reason": "..."}}
 Reason must be in {target_language}.
 """
 
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     payload = {
         "model": "qwen/qwen3.6-27b",
         "messages": [
-            {"role": "system", "content": "You are a professional cybersecurity expert responding strictly in JSON."},
+            {
+                "role": "system",
+                "content": "You are a professional cybersecurity expert responding strictly in JSON."
+            },
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
+                    {
+                        "type": "text",
+                        "text": prompt
+                    },
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"},
-                    },
-                ],
-            },
+                        "image_url": {
+                            # Asli SDK me unhone URL di hai, hum yahan Base64 string pass karenge
+                            "url": f"data:image/jpeg;base64,{screenshot_b64}"
+                        }
+                    }
+                ]
+            }
         ],
-        "temperature": 0.1,
-        "response_format": {"type": "json_object"},
+        "temperature": 0.1,          # Creativity low, accuracy high
+        "max_completion_tokens": 1024, 
+        "top_p": 1,
+        "stream": False,
+        "response_format": {"type": "json_object"}
     }
 
     try:
