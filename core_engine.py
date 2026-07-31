@@ -583,31 +583,28 @@ Reason must be in {target_language}.
         "model": "qwen/qwen3.6-27b",
         "messages": [
             {
-                "role": "system",
+                "role": "system", 
                 "content": "You are a professional cybersecurity expert responding strictly in JSON."
             },
             {
                 "role": "user",
                 "content": [
                     {
-                        "type": "text",
+                        "type": "text", 
                         "text": prompt
                     },
                     {
                         "type": "image_url",
                         "image_url": {
-                            # Asli SDK me unhone URL di hai, hum yahan Base64 string pass karenge
                             "url": f"data:image/jpeg;base64,{screenshot_b64}"
                         }
-                    }
-                ]
-            }
+                    },
+                ],
+            },
         ],
-        "temperature": 0.1,          # Creativity low, accuracy high
-        "max_completion_tokens": 1024, 
-        "top_p": 1,
-        "stream": False,
-        "response_format": {"type": "json_object"}
+        "temperature": 0.1,
+        "max_tokens": 1024,
+        "response_format": {"type": "json_object"},
     }
 
     try:
@@ -619,10 +616,10 @@ Reason must be in {target_language}.
                 "reason": result.get("reason", "Analyzed by visual AI."),
                 "type": "VISUAL_AGGREGATED",
             }
+        else:
+            print(f"⚠️ Groq API Error: {response.status_code} - {response.text}")
     except Exception as e:
-        print(f"⚠️ Groq Vision Error: {e}")
-
-    return {"risk_level": "WARNING", "reason": "Visual analysis failed, but URL context may still be suspicious.", "type": "VISUAL"}
+        print(f"⚠️ Groq Vision Request Failed: {e}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PATCH — core_engine.py
