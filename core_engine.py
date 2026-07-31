@@ -1,3 +1,4 @@
+import asyncio
 import re
 import os
 import requests
@@ -28,20 +29,20 @@ try:
         socket_connect_timeout=2,
     )
     REDIS_CLIENT.ping()
-    print("✅ Redis connected.")
+    print("Redis connected.")
 except Exception as _re:
-    print(f"⚠️ Redis unavailable: {_re}. Supabase cache will be used.")
+    print(f"Redis unavailable: {_re}. Supabase cache will be used.")
     REDIS_CLIENT = None
 
 REDIS_TTL = {
-    "SAFE":    86400,   # 24 ghante
-    "DANGER":  604800,  # 7 din
-    "WARNING": 43200,   # 12 ghante
+    "SAFE": 86400, # 24 ghante
+    "DANGER": 604800, # 7 din
+    "WARNING": 43200, # 12 ghante
 }
 
-ALL_LANGUAGES  = ["en", "hi", "ar", "es", "pt", "in"]
+ALL_LANGUAGES = ["en", "hi", "ar", "es", "pt", "in"]
 LANGUAGE_NAMES = {
-    "en": "English", "hi": "Hindi",   "ar": "Arabic",
+    "en": "English", "hi": "Hindi", "ar": "Arabic",
     "es": "Spanish", "pt": "Portuguese", "in": "Indonesian"
 }
 
@@ -56,9 +57,9 @@ def get_domain_age(domain: str) -> int | None:
     """Return domain age in days using RDAP (Verisign).
 
     Returns:
-        int  >= 0  : valid age in days
-        -1         : domain invalid, RDAP returned no registration date, or unparseable date
-        None       : transient error (network failure, rate limit) — DO NOT cache, retry later
+        int >= 0 : valid age in days
+        -1 : domain invalid, RDAP returned no registration date, or unparseable date
+        None : transient error (network failure, rate limit) — DO NOT cache, retry later
     """
     if not domain:
         return -1
@@ -103,7 +104,7 @@ def get_domain_age(domain: str) -> int | None:
     raw_date = None
     for event in data["events"]:
         if event.get("eventAction") == "registration":
-            raw_date = event.get("eventDate")  # e.g. "1997-09-15T04:00:00Z"
+            raw_date = event.get("eventDate") # e.g. "1997-09-15T04:00:00Z"
             break
 
     if not raw_date:
@@ -113,7 +114,7 @@ def get_domain_age(domain: str) -> int | None:
 
     # ── PARSE + CALCULATE ────────────────────────────────────────────────
     try:
-        clean_date_str = raw_date[:10]  # "YYYY-MM-DD"
+        clean_date_str = raw_date[:10] # "YYYY-MM-DD"
         creation_date = datetime.strptime(clean_date_str, "%Y-%m-%d")
     except ValueError:
         _DOMAIN_AGE_CACHE[domain] = -1
@@ -264,7 +265,7 @@ def get_redis_base_key(user_input: str) -> str:
     url_match = URL_PATTERN.search(user_input.strip()) if 'URL_PATTERN' in globals() else None
     if url_match:
         domain = extract_pure_domain_from_user_input(url_match.group(0))
-        base   = get_base_domain(domain)
+        base = get_base_domain(domain)
         return f"scan:{base or domain}"
     text_hash = hashlib.md5(user_input.strip().lower().encode()).hexdigest()
     return f"scan:text:{text_hash}"
@@ -275,10 +276,10 @@ def redis_get(base_key: str, lang: str) -> dict | None:
     try:
         val = REDIS_CLIENT.get(f"{base_key}:{lang}")
         if val:
-            print(f"✅ Redis HIT: {base_key}:{lang}")
+            print(f"Redis HIT: {base_key}:{lang}")
             return json.loads(val)
     except Exception as e:
-        print(f"⚠️ Redis GET error: {e}")
+        print(f"Redis GET error: {e}")
     return None
 
 def redis_set(base_key: str, lang: str, risk_level: str, reason: str):
@@ -291,9 +292,9 @@ def redis_set(base_key: str, lang: str, risk_level: str, reason: str):
             ttl,
             json.dumps({"risk_level": risk_level, "reason": reason})
         )
-        print(f"💾 Redis SET: {base_key}:{lang} | TTL:{ttl}s")
+        print(f"Redis SET: {base_key}:{lang} | TTL:{ttl}s")
     except Exception as e:
-        print(f"⚠️ Redis SET error: {e}")
+        print(f"Redis SET error: {e}")
 
 def translate_reason_sync(reason_en: str, lang: str) -> str:
     """English reason ko target language mein translate karo."""
@@ -321,7 +322,7 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
                     }
                 ],
                 "temperature": 0.1,
-                "max_tokens": 1536  # Breathing room badha diya taaki cut na ho
+                "max_tokens": 1536 # Breathing room badha diya taaki cut na ho
             },
             timeout=15
         )
@@ -333,15 +334,15 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
             if translated_text:
                 return translated_text
             else:
-                print(f"⚠️ [TRANSLATE] Empty translation for {lang}. Using English fallback.")
+                print(f"[TRANSLATE] Empty translation for {lang}. Using English fallback.")
                 return reason_en
         else:
-            print(f"⚠️ [TRANSLATE] API Error ({lang}): {resp.status_code} - {resp.text}")
+            print(f"[TRANSLATE] API Error ({lang}): {resp.status_code} - {resp.text}")
             
     except Exception as e:
-        print(f"⚠️ [TRANSLATE] Exception for ({lang}): {e}")
+        print(f"[TRANSLATE] Exception for ({lang}): {e}")
         
-    return reason_en  # Fallback
+    return reason_en # Fallback
     
 def background_translate_and_cache(base_key: str, risk_level: str, reason_en: str, skip_lang: str):
     """
@@ -355,7 +356,7 @@ def background_translate_and_cache(base_key: str, risk_level: str, reason_en: st
             translated = translate_reason_sync(reason_en, lang)
             redis_set(base_key, lang, risk_level, translated)
         except Exception as e:
-            print(f"⚠️ Background translate failed ({lang}): {e}")
+            print(f"Background translate failed ({lang}): {e}")
 
 def _save_to_redis_and_background_translate(base_key: str, risk_level: str, reason_en: str, user_lang: str) -> str:
     """
@@ -505,7 +506,7 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
 def scan_alienvault(indicator: str, indicator_type: str = "file"): 
     """Checks AlienVault OTX (100% FREE) for file hashes or URLs."""
 
-    # 🚨 THE FIX: AlienVault API understands 'IPv4', not 'ip'
+    # THE FIX: AlienVault API understands 'IPv4', not 'ip'
     api_indicator_type = indicator_type
 
 
@@ -566,12 +567,12 @@ TARGET URL: {target_url}
 STRICT CLASSIFICATION MATRIX
 ======================================================================
 
-🔴 DANGER (High Risk / Active Threat)
+ DANGER (High Risk / Active Threat)
 1. Brand Impersonation: Displaying UI/Logos of known brands (SBI, HDFC, Amazon, PayPal, Google, Govt services, etc.) on an UNRELATED domain.
 2. Unbranded Financial/Data Harvesting Scam: Promising monetary rewards, instant loans, or free gifts AND asking for Phone/OTP/Bank details.
 3. Malicious UI Traps: Fake CAPTCHA, fake technical support popups, or fake browser system errors.
 
-🟡 WARNING (Medium Risk / Exercise Caution)
+ WARNING (Medium Risk / Exercise Caution)
 1. GAMBLING, CASINO & PREDATORY PLATFORMS:
    - Visual banners claiming unrealistic earnings ("Earn daily ₹400,000", "Earn ₹50,000/day", "Play and win cash").
    - Presence of online casino / betting game cards (e.g., Aviator, Mines, 7Up 7Down, 3 Patti, Roulette, Slots, Money Coming).
@@ -579,7 +580,7 @@ STRICT CLASSIFICATION MATRIX
 2. Aggressive/Misleading Marketing: Countdown timers, "You won a prize" popups without direct credential theft.
 3. Parked domains or suspicious redirections.
 
-🟢 SAFE (Low Risk / Legitimate Site)
+ SAFE (Low Risk / Legitimate Site)
 1. Legitimate E-Commerce / Niche Businesses with normal shopping carts.
 2. Official Brand Sites where domain matches brand identity.
 3. Blogs, corporate sites, or standard web applications.
@@ -626,35 +627,35 @@ Reason must be in {target_language}.
         "response_format": {"type": "json_object"},
     }
 
-    print("\n[DEBUG - VISION API] 📡 Sending POST request to Groq API...")
+    print("\n[DEBUG - VISION API] Sending POST request to Groq API...")
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
-        print(f"[DEBUG - VISION API] 📥 Received HTTP Status: {response.status_code}")
+        print(f"[DEBUG - VISION API] Received HTTP Status: {response.status_code}")
         if response.status_code == 200:
             result = json.loads(response.json()["choices"][0]["message"]["content"])
-            print("[DEBUG - VISION API] ✅ Successfully parsed JSON response.")
+            print("[DEBUG - VISION API] Successfully parsed JSON response.")
             return {
                 "risk_level": result.get("risk_level", "WARNING"),
                 "reason": result.get("reason", "Analyzed by visual AI."),
                 "type": "VISUAL_AGGREGATED",
             }
         else:
-            print(f"[DEBUG - VISION API] ❌ API HTTP Error: {response.status_code}")
-            print(f"[DEBUG - VISION API] ❌ API Error Body: {response.text}")
+            print(f"[DEBUG - VISION API] API HTTP Error: {response.status_code}")
+            print(f"[DEBUG - VISION API] API Error Body: {response.text}")
             return None
     except Exception as e:
-        print(f"[DEBUG - VISION API] ❌ API Request Crashed (Timeout or Network): {e}")
+        print(f"[DEBUG - VISION API] API Request Crashed (Timeout or Network): {e}")
         return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PATCH — core_engine.py
 #
 # Step 1: File ke TOP pe existing imports ke baad yeh line add karo:
-#         from input_classifier import classify_input
+# from input_classifier import classify_input
 #
 # Step 2: Sirf Aeglis_master_scan function ko replace karo.
-#         Baaki kuch nahi badlna — get_domain_age, scan_groq_ai,
-#         scan_webrisk, redis helpers, whitelist — sab same.
+# Baaki kuch nahi badlna — get_domain_age, scan_groq_ai,
+# scan_webrisk, redis helpers, whitelist — sab same.
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def Aeglis_master_scan(user_input, lang="en"):
@@ -662,13 +663,13 @@ async def Aeglis_master_scan(user_input, lang="en"):
     user_input = user_input.strip()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP -1  INPUT CLASSIFIER  (NEW)
+    # STEP -1 INPUT CLASSIFIER (NEW)
     # ──────────────────────────────────────────────────────────────────────────
     # Scan se pehle ek lightweight AI call (gpt-oss-20b, ~70 tokens) jo batata:
-    #   skip_scan      → Bank SMS / OTP = instant SAFE, zero scan
-    #   ignore_urgency → Legitimate promo = urgency flag ignore karo
-    #   strict_mode    → Scam/suspicious = full strict pipeline
-    #   cleaned_input  → UPI VPAs (@kotakpay etc) hata ke URL detector safe karo
+    # skip_scan → Bank SMS / OTP = instant SAFE, zero scan
+    # ignore_urgency → Legitimate promo = urgency flag ignore karo
+    # strict_mode → Scam/suspicious = full strict pipeline
+    # cleaned_input → UPI VPAs (@kotakpay etc) hata ke URL detector safe karo
     # ══════════════════════════════════════════════════════════════════════════
 
     classification = classify_input(user_input)
@@ -702,9 +703,9 @@ async def Aeglis_master_scan(user_input, lang="en"):
         )
         return {
             "risk_level": "SAFE",
-            "reason":     final_reason,
-            "type":       f"CLASSIFIED_{classification['type']}",
-            "scan_mode":  "message",
+            "reason": final_reason,
+            "type": f"CLASSIFIED_{classification['type']}",
+            "scan_mode": "message",
             "credits_used": 0
         }
 
@@ -743,43 +744,43 @@ async def Aeglis_master_scan(user_input, lang="en"):
         )
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP 0A  WHITELIST PRE-CHECK  (unchanged — O(1) RAM lookup)
+    # STEP 0A WHITELIST PRE-CHECK (unchanged — O(1) RAM lookup)
     # ══════════════════════════════════════════════════════════════════════════
 
     _pre_url_match = URL_PATTERN.search(user_input_for_scan)
     if _pre_url_match:
-        _pre_domain  = extract_pure_domain_from_user_input(_pre_url_match.group(0))
-        _pre_base    = get_base_domain(_pre_domain)
+        _pre_domain = extract_pure_domain_from_user_input(_pre_url_match.group(0))
+        _pre_base = get_base_domain(_pre_domain)
         _pre_is_pure = (
             len(user_input_for_scan.strip()) <= len(_pre_url_match.group(0)) + 5
         )
         if _pre_is_pure and (
             _pre_domain in MASTER_WHITELIST or
-            _pre_base   in MASTER_WHITELIST
+            _pre_base in MASTER_WHITELIST
         ):
-            print(f"⚡ WHITELIST PRE-CHECK HIT (pre-Redis): {_pre_domain}")
+            print(f"WHITELIST PRE-CHECK HIT (pre-Redis): {_pre_domain}")
             return {
                 "risk_level": "SAFE",
-                "reason":     "Verified Trusted Domain (Aeglis Zero-Latency Trust).",
-                "type":       "AEGLIS_WHITELIST"
+                "reason": "Verified Trusted Domain (Aeglis Zero-Latency Trust).",
+                "type": "AEGLIS_WHITELIST"
             }
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP 0B  REDIS CHECK  (unchanged)
+    # STEP 0B REDIS CHECK (unchanged)
     # ══════════════════════════════════════════════════════════════════════════
 
-    url_check    = URL_PATTERN.search(user_input_for_scan)
+    url_check = URL_PATTERN.search(user_input_for_scan)
     is_cacheable = bool(url_check)
-    base_key     = get_redis_base_key(user_input_for_scan)
+    base_key = get_redis_base_key(user_input_for_scan)
 
     if is_cacheable:
         redis_cached = redis_get(base_key, lang)
-        print(f"[DEBUG - CACHE] 🗄️ Redis lookup for key='{base_key}' lang='{lang}' → {'HIT' if redis_cached else 'MISS'}")
+        print(f"[DEBUG - CACHE] Redis lookup for key='{base_key}' lang='{lang}' → {'HIT' if redis_cached else 'MISS'}")
         if redis_cached:
             return {
                 "risk_level": redis_cached["risk_level"],
-                "reason":     redis_cached["reason"],
-                "type":       "CACHED_RESULT"
+                "reason": redis_cached["reason"],
+                "type": "CACHED_RESULT"
             }
         if lang != "en":
             redis_en = redis_get(base_key, "en")
@@ -788,22 +789,22 @@ async def Aeglis_master_scan(user_input, lang="en"):
                 redis_set(base_key, lang, redis_en["risk_level"], translated)
                 return {
                     "risk_level": redis_en["risk_level"],
-                    "reason":     translated,
-                    "type":       "CACHED_RESULT"
+                    "reason": translated,
+                    "type": "CACHED_RESULT"
                 }
 
     # ══════════════════════════════════════════════════════════════════════════
-    # INPUT TYPE DETECT  (on cleaned input)
+    # INPUT TYPE DETECT (on cleaned input)
     # ══════════════════════════════════════════════════════════════════════════
 
-    intel_context = classifier_context  # classifier context already injected
+    intel_context = classifier_context # classifier context already injected
 
-    url_found    = URL_PATTERN.search(user_input_for_scan)
-    has_url      = bool(url_found)
-    is_pure_url  = has_url and (
+    url_found = URL_PATTERN.search(user_input_for_scan)
+    has_url = bool(url_found)
+    is_pure_url = has_url and (
         len(user_input_for_scan.strip()) <= len(url_found.group(0)) + 5
     )
-    is_mixed     = has_url and not is_pure_url
+    is_mixed = has_url and not is_pure_url
     is_pure_text = not has_url and not is_valid_hash(user_input_for_scan)
 
     print(
@@ -824,7 +825,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
     # ── 2. URL SCAN ───────────────────────────────────────────────────────────
     if has_url:
-        target_url  = url_found.group(0)
+        target_url = url_found.group(0)
         pure_domain = extract_pure_domain_from_user_input(target_url)
 
         KNOWN_SHORTENERS = {
@@ -832,7 +833,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
             "buff.ly", "ow.ly", "cutt.ly", "rebrand.ly", "shorturl.at"
         }
         if pure_domain in KNOWN_SHORTENERS:
-            target_url  = unmask_short_url(target_url)
+            target_url = unmask_short_url(target_url)
             pure_domain = extract_pure_domain_from_user_input(target_url)
             intel_context.append(
                 "Notice: Shortened URL unmasked to reveal true destination."
@@ -874,36 +875,63 @@ async def Aeglis_master_scan(user_input, lang="en"):
                     "URL domain is whitelisted but message text may contain scam context."
                 )
                 intel_context.append(f"Surrounding message text: {user_input_for_scan}")
-                result     = scan_groq_ai(
+                result = scan_groq_ai(
                     user_input_for_scan,
                     context_flag=" | ".join(intel_context),
                     lang="en"
                 )
                 risk_level = result.get("risk_level", "WARNING")
-                reason_en  = result.get("reason", "")
+                reason_en = result.get("reason", "")
                 if risk_level in REDIS_TTL and not is_mixed:
                     result["reason"] = _save_to_redis_and_background_translate(
                         base_key, risk_level, reason_en, lang
                     )
                 return result
 
-        # Full scan pipeline
-        webrisk_res = scan_webrisk(target_url)
+        # ══════════════════════════════════════════════════════════════════════════
+        # PARALLEL STAGE 1: DATA GATHERING (Domain Age + WebRisk + Sandbox)
+        # ══════════════════════════════════════════════════════════════════════════
+        print(f"\n[DEBUG - ENGINE] Launching 3-Way Parallel Scans for: {target_url}")
+
+        age_domain_target = get_base_domain(pure_domain) or pure_domain
+
+        # Teeno tasks ko queue mein daalo
+        task_domain_age = asyncio.to_thread(get_domain_age, age_domain_target)
+        task_webrisk    = asyncio.to_thread(scan_webrisk, target_url)
+        task_sandbox    = run_url_scanner(target_url)
+
+        # Teeno ko ek sath fire karo!
+        try:
+            age_days, webrisk_res, sandbox_res = await asyncio.gather(
+                task_domain_age, task_webrisk, task_sandbox
+            )
+        except Exception as e:
+            print(f"[DEBUG - ENGINE] Parallel Layer 1 Crashed: {e}")
+            age_days    = None
+            webrisk_res = {"risk_level": "ERROR", "reason": "Parallel execution failed."}
+            sandbox_res = {"status": "failed", "error_message": str(e)}
+
+        # ── 1. Process Domain Age ──
+        if age_days is None:
+            intel_context.append("Domain age: unknown (WHOIS lookup failed, treat as unverified)")
+        elif age_days == -1:
+            intel_context.append("Domain age: unknown (no creation date in WHOIS)")
+        else:
+            intel_context.append(f"Domain age: {age_days} days")
+            if age_days < 7:
+                intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
+
+        # ── 2. Process WebRisk ──
         intel_context.append(f"Aeglis SafeLink Engine: {webrisk_res}")
 
-        print(f"\n[DEBUG - ENGINE] 🚀 Launching Aeglis Dynamic Sandbox: {target_url}")
-        try:
-            sandbox_res = await run_url_scanner(target_url)
-            print(f"[DEBUG - ENGINE] 📦 Sandbox Status Returned: {sandbox_res.get('status')}")
-        except Exception as sandbox_exc:
-            print(f"[DEBUG - ENGINE] ❌ Sandbox Crashed: {sandbox_exc}")
-            intel_context.append(f"Sandbox Error: {sandbox_exc}")
-            sandbox_res = {"status": "failed", "error_message": str(sandbox_exc)}
+        # ── 3. Process Sandbox ──
+        print(f"[DEBUG - ENGINE] Sandbox Status Returned: {sandbox_res.get('status')}")
 
         visual_res     = None
         js_res         = sandbox_res if isinstance(sandbox_res, dict) else {}
         js_behavior    = js_res.get("js_behavior_signals") or {}
         sandbox_threat = bool(js_res.get("threat_detected"))
+        screenshot_b64 = None
 
         if sandbox_res.get("status") == "success":
             text_context    = sandbox_res.get("extracted_text", "")
@@ -911,65 +939,49 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
             intel_context.append(f"Sandbox Page Text: {text_context}")
             intel_context.append(f"Network Domains: {network_context}")
-            intel_context.append(
-                f"JS Behavior: {json.dumps(js_behavior)[:1000]}"
-            )
+            intel_context.append(f"JS Behavior: {json.dumps(js_behavior)[:1000]}")
 
             redirect_chain = sandbox_res.get("redirect_chain") or []
             if len(redirect_chain) >= 3:
-                intel_context.append(
-                    f"Redirect chain: {len(redirect_chain)} hops detected."
-                )
+                intel_context.append(f"Redirect chain: {len(redirect_chain)} hops detected.")
 
             screenshot_b64 = sandbox_res.get("screenshot_base64")
-            if screenshot_b64:
-                print(f"[DEBUG - ENGINE] 👁️ Passing Screenshot to Vision AI (Size: {len(screenshot_b64)} chars)...")
-                visual_res = await scan_groq_visual_for_phishing(
-                    screenshot_b64, target_url, lang="en"
-                )
-                print(f"[DEBUG - ENGINE] 🧠 Vision AI Final Result: {visual_res}")
-            else:
-                print("[DEBUG - ENGINE] ⚠️ Sandbox status was 'success', but screenshot_base64 was MISSING!")
         else:
-            print(f"[DEBUG - ENGINE] 🚫 Skipping Vision AI because Sandbox failed! Error: {sandbox_res.get('error_message')}")
-            intel_context.append(
-                f"Sandbox Error: {sandbox_res.get('error_message')}"
-            )
+            print(f"[DEBUG - ENGINE] Sandbox Error: {sandbox_res.get('error_message')}")
+            intel_context.append(f"Sandbox Error: {sandbox_res.get('error_message')}")
 
         if is_mixed:
-            surrounding_text = user_input_for_scan.replace(
-                url_found.group(0), ""
-            ).strip()
+            surrounding_text = user_input_for_scan.replace(url_found.group(0), "").strip()
             if surrounding_text:
-                intel_context.append(
-                    f"User message surrounding text: '{surrounding_text}'"
-                )
-                intel_context.append(
-                    "Analyze surrounding text for social engineering, "
-                    "urgency tactics, fake money promises, etc."
-                )
+                intel_context.append(f"User message surrounding text: '{surrounding_text}'")
+                intel_context.append("Analyze surrounding text for social engineering, urgency tactics, fake money promises, etc.")
 
-        # JS threat → force DANGER
+        # JS threat → force DANGER instantly
         if sandbox_threat:
-            reason_en    = (
-                "Suspicious runtime behavior detected "
-                "(clipboard hijack / redirect / crypto mining / data exfil)."
-            )
-            final_reason = _save_to_redis_and_background_translate(
-                base_key, "DANGER", reason_en, lang
-            )
-            return {
-                "risk_level": "DANGER",
-                "reason":     final_reason,
-                "type":       "JS_BEHAVIOR"
-            }
+            reason_en = "Suspicious runtime behavior detected (clipboard hijack / redirect / crypto mining / data exfil)."
+            final_reason = _save_to_redis_and_background_translate(base_key, "DANGER", reason_en, lang)
+            return {"risk_level": "DANGER", "reason": final_reason, "type": "JS_BEHAVIOR"}
 
-        # Final AI verdict
-        text_res   = scan_groq_ai(
-            user_input_for_scan,
-            context_flag=" | ".join(intel_context),
-            lang="en"
-        )
+        # ══════════════════════════════════════════════════════════════════════════
+        # PARALLEL STAGE 2: AI BRAINS (Text AI + Vision AI)
+        # ══════════════════════════════════════════════════════════════════════════
+        print("\n[DEBUG - ENGINE] Launching AI Brains in Parallel...")
+
+        task_text_ai = asyncio.to_thread(scan_groq_ai, user_input_for_scan, " | ".join(intel_context), "en")
+
+        if screenshot_b64:
+            print(f"[DEBUG - ENGINE] Passing Screenshot to Vision AI (Size: {len(screenshot_b64)} chars)...")
+            task_vision_ai = scan_groq_visual_for_phishing(screenshot_b64, target_url, lang="en")
+
+            ai_results = await asyncio.gather(task_text_ai, task_vision_ai)
+            text_res   = ai_results[0]
+            visual_res = ai_results[1]
+            print(f"[DEBUG - ENGINE] Vision AI Final Result: {visual_res}")
+        else:
+            print("[DEBUG - ENGINE] No screenshot available, skipping Vision AI.")
+            text_res = await task_text_ai
+
+        # Priority Sorting
         candidates = [text_res]
         if visual_res:
             candidates.append(visual_res)
@@ -984,9 +996,8 @@ async def Aeglis_master_scan(user_input, lang="en"):
         risk_level = final.get("risk_level", "WARNING")
         reason_en  = final.get("reason", "")
         if risk_level in REDIS_TTL and reason_en and not is_mixed:
-            final["reason"] = _save_to_redis_and_background_translate(
-                base_key, risk_level, reason_en, lang
-            )
+            final["reason"] = _save_to_redis_and_background_translate(base_key, risk_level, reason_en, lang)
+
         return final
 
     # ── 3. PURE TEXT SCAN ─────────────────────────────────────────────────────
