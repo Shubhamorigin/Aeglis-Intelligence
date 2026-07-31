@@ -21,7 +21,7 @@ try:
     OLETOOLS_AVAILABLE = True
 except ImportError:
     OLETOOLS_AVAILABLE = False
-    print("⚠️ oletools not installed. Run: pip install -U oletools")
+    print("oletools not installed. Run: pip install -U oletools")
 
 # pefile — PE header analysis
 try:
@@ -29,7 +29,7 @@ try:
     PEFILE_AVAILABLE = True
 except ImportError:
     PEFILE_AVAILABLE = False
-    print("⚠️ pefile not installed. Run: pip install pefile")
+    print("pefile not installed. Run: pip install pefile")
 
 # Shared intelligence from core_engine
 from core_engine import (
@@ -41,28 +41,28 @@ from core_engine import (
 
 # ── LANGUAGE MAP ──────────────────────────────────────────────────────
 LANGUAGE_MAP = {
-    "en": "English", "hi": "Hindi",   "ar": "Arabic",
+    "en": "English", "hi": "Hindi", "ar": "Arabic",
     "es": "Spanish", "pt": "Portuguese", "in": "Indonesian"
 }
 
 # ── DANGEROUS APK PERMISSIONS ─────────────────────────────────────────
 DANGEROUS_PERMISSIONS = {
-    "android.permission.READ_SMS":                   "CRITICAL",
-    "android.permission.RECEIVE_SMS":                "CRITICAL",
-    "android.permission.SEND_SMS":                   "CRITICAL",
-    "android.permission.READ_CALL_LOG":              "CRITICAL",
-    "android.permission.PROCESS_OUTGOING_CALLS":     "CRITICAL",
-    "android.permission.SYSTEM_ALERT_WINDOW":        "CRITICAL",
+    "android.permission.READ_SMS": "CRITICAL",
+    "android.permission.RECEIVE_SMS": "CRITICAL",
+    "android.permission.SEND_SMS": "CRITICAL",
+    "android.permission.READ_CALL_LOG": "CRITICAL",
+    "android.permission.PROCESS_OUTGOING_CALLS": "CRITICAL",
+    "android.permission.SYSTEM_ALERT_WINDOW": "CRITICAL",
     "android.permission.BIND_ACCESSIBILITY_SERVICE": "CRITICAL",
-    "android.permission.BIND_DEVICE_ADMIN":          "CRITICAL",
-    "android.permission.READ_CONTACTS":              "HIGH",
-    "android.permission.CAMERA":                     "HIGH",
-    "android.permission.RECORD_AUDIO":               "HIGH",
-    "android.permission.ACCESS_FINE_LOCATION":       "HIGH",
-    "android.permission.READ_EXTERNAL_STORAGE":      "HIGH",
-    "android.permission.WRITE_EXTERNAL_STORAGE":     "HIGH",
-    "android.permission.INTERNET":                   "MEDIUM",
-    "android.permission.GET_ACCOUNTS":               "MEDIUM",
+    "android.permission.BIND_DEVICE_ADMIN": "CRITICAL",
+    "android.permission.READ_CONTACTS": "HIGH",
+    "android.permission.CAMERA": "HIGH",
+    "android.permission.RECORD_AUDIO": "HIGH",
+    "android.permission.ACCESS_FINE_LOCATION": "HIGH",
+    "android.permission.READ_EXTERNAL_STORAGE": "HIGH",
+    "android.permission.WRITE_EXTERNAL_STORAGE": "HIGH",
+    "android.permission.INTERNET": "MEDIUM",
+    "android.permission.GET_ACCOUNTS": "MEDIUM",
 }
 SEVERITY_WEIGHT = {"CRITICAL": 30, "HIGH": 20, "MEDIUM": 10}
 
@@ -70,17 +70,17 @@ SEVERITY_WEIGHT = {"CRITICAL": 30, "HIGH": 20, "MEDIUM": 10}
 # These trigger DANGER regardless of context
 VBA_DANGER_KEYWORDS = {
     "AutoOpen", "AutoClose", "Auto_Open", "Auto_Close",
-    "Document_Open", "Workbook_Open",           # auto-execute triggers
-    "Shell", "CreateObject", "WScript.Shell",    # shell execution
-    "powershell", "cmd.exe", "cmd /c",           # command execution
-    "Environ", "GetObject",                      # environment access
-    "CallByName", "MacroSheet",                  # advanced evasion
+    "Document_Open", "Workbook_Open", # auto-execute triggers
+    "Shell", "CreateObject", "WScript.Shell", # shell execution
+    "powershell", "cmd.exe", "cmd /c", # command execution
+    "Environ", "GetObject", # environment access
+    "CallByName", "MacroSheet", # advanced evasion
 }
 VBA_SUSPICIOUS_KEYWORDS = {
-    "Base64", "Chr(", "Asc(", "StrReverse",     # obfuscation
-    "ADODB.Stream", "Scripting.FileSystem",      # file IO
-    "WinHttp", "XMLHTTP", "InternetExplorer",   # network access
-    "RegWrite", "RegRead",                       # registry access
+    "Base64", "Chr(", "Asc(", "StrReverse", # obfuscation
+    "ADODB.Stream", "Scripting.FileSystem", # file IO
+    "WinHttp", "XMLHTTP", "InternetExplorer", # network access
+    "RegWrite", "RegRead", # registry access
 }
 
 # ── DANGEROUS EXECUTABLES INSIDE ZIP ─────────────────────────────────
@@ -93,52 +93,52 @@ DANGEROUS_ZIP_EXTENSIONS = {
 # ── SCRIPT DANGER PATTERNS ────────────────────────────────────────────
 SCRIPT_DANGER_PATTERNS = [
     # PowerShell
-    rb"Invoke-WebRequest",   rb"Invoke-Expression",
-    rb"IEX\s*\(",            rb"-EncodedCommand",
-    rb"-enc\s",              rb"DownloadString",
-    rb"DownloadFile",        rb"Net\.WebClient",
-    rb"Start-Process",       rb"-WindowStyle\s+Hidden",
-    rb"-NonInteractive",     rb"Bypass",
+    rb"Invoke-WebRequest", rb"Invoke-Expression",
+    rb"IEX\s*\(", rb"-EncodedCommand",
+    rb"-enc\s", rb"DownloadString",
+    rb"DownloadFile", rb"Net\.WebClient",
+    rb"Start-Process", rb"-WindowStyle\s+Hidden",
+    rb"-NonInteractive", rb"Bypass",
     # BAT/CMD
-    rb"powershell\s+-",      rb"certutil\s+-decode",
+    rb"powershell\s+-", rb"certutil\s+-decode",
     rb"bitsadmin\s+/transfer",
-    rb"mshta\s+http",        rb"regsvr32\s+/s",
-    rb"wscript\s+//B",       rb"cscript\s+//B",
-    rb"schtasks\s+/create",  rb"net\s+user\s+/add",
+    rb"mshta\s+http", rb"regsvr32\s+/s",
+    rb"wscript\s+//B", rb"cscript\s+//B",
+    rb"schtasks\s+/create", rb"net\s+user\s+/add",
     # VBS
-    rb"WScript\.Shell",      rb"CreateObject\s*\(",
-    rb"Execute\s*\(",        rb"Eval\s*\(",
+    rb"WScript\.Shell", rb"CreateObject\s*\(",
+    rb"Execute\s*\(", rb"Eval\s*\(",
 ]
 
 # ── PE (EXE/DLL) DANGER STRINGS ──────────────────────────────────────
 PE_DANGER_STRINGS = [
-    b"IsDebuggerPresent",    # anti-debug
-    b"VirtualAlloc",         # shellcode injection
-    b"WriteProcessMemory",   # process injection
-    b"CreateRemoteThread",   # remote thread injection
-    b"SetWindowsHookEx",     # keylogger
-    b"GetAsyncKeyState",     # keylogger
-    b"RegSetValueEx",        # registry persistence
-    b"WinExec",              # code execution
-    b"ShellExecuteA",        # shell execution
-    b"URLDownloadToFile",    # downloader
-    b"InternetOpenUrl",      # network access
+    b"IsDebuggerPresent", # anti-debug
+    b"VirtualAlloc", # shellcode injection
+    b"WriteProcessMemory", # process injection
+    b"CreateRemoteThread", # remote thread injection
+    b"SetWindowsHookEx", # keylogger
+    b"GetAsyncKeyState", # keylogger
+    b"RegSetValueEx", # registry persistence
+    b"WinExec", # code execution
+    b"ShellExecuteA", # shell execution
+    b"URLDownloadToFile", # downloader
+    b"InternetOpenUrl", # network access
 ]
 
 # ── JS OBFUSCATION PATTERNS ───────────────────────────────────────────
 JS_OBFUSCATION_PATTERNS = [
-    r"eval\s*\(",                          # eval()
-    r"Function\s*\(['\"]",                # Function constructor
-    r"\\x[0-9a-fA-F]{2}",                 # hex encoding
-    r"String\.fromCharCode\s*\(",          # char code obfuscation
-    r"atob\s*\(",                          # base64 decode
-    r"unescape\s*\(",                      # URL decode
-    r"\\u[0-9a-fA-F]{4}",                 # unicode escape spam
-    r"(?:var|let|const)\s+\w{1}\s*=",     # single char vars (minified)
-    r"document\.write\s*\(",              # dynamic DOM write
-    r"\.innerHTML\s*=",                    # innerHTML assignment
-    r"window\[",                           # bracket notation evasion
-    r"setTimeout\s*\(\s*['\"]",            # string-based setTimeout
+    r"eval\s*\(", # eval()
+    r"Function\s*\(['\"]", # Function constructor
+    r"\\x[0-9a-fA-F]{2}", # hex encoding
+    r"String\.fromCharCode\s*\(", # char code obfuscation
+    r"atob\s*\(", # base64 decode
+    r"unescape\s*\(", # URL decode
+    r"\\u[0-9a-fA-F]{4}", # unicode escape spam
+    r"(?:var|let|const)\s+\w{1}\s*=", # single char vars (minified)
+    r"document\.write\s*\(", # dynamic DOM write
+    r"\.innerHTML\s*=", # innerHTML assignment
+    r"window\[", # bracket notation evasion
+    r"setTimeout\s*\(\s*['\"]", # string-based setTimeout
 ]
 
 
@@ -170,7 +170,7 @@ class AeglisEngine:
         """
         priority = {"DANGER": 3, "WARNING": 2, "SAFE": 1, "UNKNOWN": 0}
 
-        vt_level   = vt_report.get("risk_level", "UNKNOWN")
+        vt_level = vt_report.get("risk_level", "UNKNOWN")
         spec_level = specialized.get("risk_level", "UNKNOWN")
 
         if specialized.get("threat_detected"):
@@ -179,11 +179,11 @@ class AeglisEngine:
         if priority.get(vt_level, 0) >= priority.get(spec_level, 0):
             return {
                 "risk_level": vt_level,
-                "reason":     vt_report.get("reason", "Flagged by global threat intelligence.")
+                "reason": vt_report.get("reason", "Flagged by global threat intelligence.")
             }
         return {
             "risk_level": spec_level,
-            "reason":     specialized.get("reason", "Flagged by Aeglis static analysis.")
+            "reason": specialized.get("reason", "Flagged by Aeglis static analysis.")
         }
 
     # ═══════════════════════════════════════════════════════════════════
@@ -195,7 +195,7 @@ class AeglisEngine:
         """
         File ka pehla 4KB locally padh ke AI se suspicion score lo (1-10).
         Score >= 7 → VT hash check karo
-        Score <  7 → VT skip karo, credits bachao
+        Score < 7 → VT skip karo, credits bachao
 
         Images bypass karte hain — Vision Engine handle karti hai.
         NOTE: File content KABHI bahar nahi jaata. Sirf cleaned text snippet Groq ko deta hai.
@@ -207,11 +207,11 @@ class AeglisEngine:
         # Binary formats ke liye bypass — ye UTF-8 decode nahi honge,
         # unke dedicated scanners hain (_scan_apk, _scan_executable, _scan_zip)
         BINARY_MIME_MARKERS = (
-            "zip", "x-rar", "x-7z",           # archives
-            "x-dosexec", "x-msdownload",       # EXE/DLL/MSI
-            "octet-stream", "x-executable",    # generic binaries
-            "android",                         # APK
-            "x-msi", "x-ms-installer",         # installers
+            "zip", "x-rar", "x-7z", # archives
+            "x-dosexec", "x-msdownload", # EXE/DLL/MSI
+            "octet-stream", "x-executable", # generic binaries
+            "android", # APK
+            "x-msi", "x-ms-installer", # installers
         )
         if any(marker in file_type for marker in BINARY_MIME_MARKERS):
             print(f"Binary MIME ({file_type}) — skipping text gatekeeper, dedicated engine will handle.")
@@ -230,7 +230,7 @@ class AeglisEngine:
             completion = await self.groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "Output strict JSON only."},
-                    {"role": "user",   "content": (
+                    {"role": "user", "content": (
                         f"You are an AI malware gatekeeper.\n"
                         f"File Type: {file_type}\n"
                         f"Content Snippet (first 1500 chars):\n{clean_chunk[:1500]}\n\n"
@@ -243,14 +243,14 @@ class AeglisEngine:
                 model="openai/gpt-oss-120b",
                 response_format={"type": "json_object"}
             )
-            data  = json.loads(completion.choices[0].message.content)
+            data = json.loads(completion.choices[0].message.content)
             score = int(data.get("suspicion_score", 5))
             print(f"AI Gatekeeper score: {score}/10 — {data.get('reason', '')}")
             return score
 
         except Exception as e:
             print(f"Gatekeeper error: {e}")
-            return 8  # Fail safe — VT chalao
+            return 8 # Fail safe — VT chalao
 
     # ═══════════════════════════════════════════════════════════════════
     # MAIN ENTRY POINT
@@ -261,92 +261,94 @@ class AeglisEngine:
         PIPELINE (files kabhi upload nahi hongi):
         1. MIME + SHA-256 hash locally
         2. Local Supabase cache (hash only)
-        3. AlienVault hash reputation (hash only — no upload)
+        3. AlienVault hash reputation (hash only — no upload)  — parallel with static analysis
         4. AI Gatekeeper → sirf suspicious pe VT hash check
-        5. Specialized LOCAL static analysis
+        5. Specialized LOCAL static analysis                    — parallel with reputation
         6. Final verdict consolidate
         """
-        mime      = magic.Magic(mime=True)
+        mime = magic.Magic(mime=True)
         file_type = mime.from_file(file_path)
         file_hash = self._get_file_hash(file_path)
-        filename  = os.path.basename(file_path).lower()
+        filename = os.path.basename(file_path).lower()
 
         print(f"\n{'='*50}")
         print(f"File: {filename} | MIME: {file_type}")
         print(f"Hash: {file_hash[:16]}..." if file_hash else "Hash: N/A")
         print(f"{'='*50}")
 
-        vt_report = {"risk_level": "UNKNOWN", "reason": "Not checked."}
+        # ═══════════════════════════════════════════════════════════════════
+        # TASK 1: HASH REPUTATION (AlienVault -> Gatekeeper -> VT)
+        # ═══════════════════════════════════════════════════════════════════
+        async def fetch_reputation():
+            if not file_hash:
+                return {"risk_level": "UNKNOWN", "reason": "No hash available."}
 
-        # ── HASH-ONLY REPUTATION CHECKS ───────────────────────────────
-        if file_hash:
+            # FIX: Async thread mein daala taaki server block na ho
+            av_res = await asyncio.to_thread(scan_alienvault, file_hash, indicator_type="file")
 
-                # Step 1 — AlienVault (hash only, no upload)
-                av_res = scan_alienvault(file_hash, indicator_type="file")
-                if av_res and av_res.get("risk_level") == "DANGER":
-                    vt_report = av_res
-                    print("🛑 Hash flagged by AlienVault!")
+            if av_res and av_res.get("risk_level") == "DANGER":
+                print("Hash flagged by AlienVault!")
+                return av_res
 
-                else:
-                    # Step 2 — AI Gatekeeper → VT hash check (no upload)
-                    print("🧠 AI Gatekeeper analyzing...")
-                    ai_score = await self._ai_gatekeeper_check(file_path, file_type)
+            print("AI Gatekeeper analyzing...")
+            ai_score = await self._ai_gatekeeper_check(file_path, file_type)
 
-                    if ai_score >= 7:
-                        print(f"⚠️ Score {ai_score}/10 — checking VirusTotal hash...")
-                        vt_report = scan_virustotal(file_hash)
-                    else:
-                        print(f"✅ Score {ai_score}/10 — hash not submitted to VT.")
-                        vt_report = {
-                            "risk_level": "SAFE",
-                            "reason":     "Cleared by Aeglis AI Gatekeeper (local analysis)."
-                        }
+            if ai_score >= 7:
+                print(f"Score {ai_score}/10 — checking VirusTotal hash...")
+                # FIX: Thread mein daala
+                return await asyncio.to_thread(scan_virustotal, file_hash)
 
-        # ── LOCAL STATIC ANALYSIS (no external upload) ────────────────
-        print(f"\n🔬 Starting local static analysis...")
-        specialized = {}
+            print(f"Score {ai_score}/10 — hash not submitted to VT.")
+            return {
+                "risk_level": "SAFE",
+                "reason": "Cleared by Aeglis AI Gatekeeper (local analysis)."
+            }
 
-        if "pdf" in file_type:
-            specialized = await asyncio.to_thread(self._scan_pdf, file_path)
+        # ═══════════════════════════════════════════════════════════════════
+        # TASK 2: LOCAL STATIC ANALYSIS
+        # ═══════════════════════════════════════════════════════════════════
+        async def run_local_analysis():
+            print(f"Starting local static analysis...")
+            if "pdf" in file_type:
+                return await asyncio.to_thread(self._scan_pdf, file_path)
+            elif "android" in file_type or filename.endswith(".apk"):
+                return await self._scan_apk(file_path, lang=lang)
+            elif "image" in file_type:
+                return await self._scan_image(file_path, lang=lang)
+            elif filename.endswith((".zip", ".rar", ".7z")) or "zip" in file_type:
+                return await asyncio.to_thread(self._scan_zip, file_path)
+            elif filename.endswith((".docx", ".xlsx", ".xlsm", ".docm", ".pptx", ".pptm", ".xls", ".doc")):
+                return await asyncio.to_thread(self._scan_office_macros, file_path)
+            elif filename.endswith((".exe", ".msi", ".dll", ".scr", ".com")):
+                return await asyncio.to_thread(self._scan_executable, file_path)
+            elif filename.endswith((".bat", ".cmd", ".ps1", ".vbs", ".hta")):
+                return await self._scan_script(file_path, file_type, lang=lang)
+            elif filename.endswith(".js") or "javascript" in file_type:
+                return await asyncio.to_thread(self._scan_javascript, file_path)
+            elif filename.endswith(".svg") or "svg" in file_type:
+                return await asyncio.to_thread(self._scan_svg, file_path)
+            else:
+                return await asyncio.to_thread(self._scan_generic, file_path)
 
-        elif "android" in file_type or filename.endswith(".apk"):
-            specialized = await self._scan_apk(file_path, lang=lang)
-
-        elif "image" in file_type:
-            specialized = await self._scan_image(file_path, lang=lang)
-
-        elif filename.endswith((".zip", ".rar", ".7z")) or "zip" in file_type:
-            specialized = await asyncio.to_thread(self._scan_zip, file_path)
-
-        elif filename.endswith((".docx", ".xlsx", ".xlsm", ".docm", ".pptx", ".pptm", ".xls", ".doc")):
-            specialized = await asyncio.to_thread(self._scan_office_macros, file_path)
-
-        elif filename.endswith((".exe", ".msi", ".dll", ".scr", ".com")):
-            specialized = await asyncio.to_thread(self._scan_executable, file_path)
-
-        elif filename.endswith((".bat", ".cmd", ".ps1", ".vbs", ".hta")):
-            specialized = await self._scan_script(file_path, file_type, lang=lang)
-
-        elif filename.endswith(".js") or "javascript" in file_type:
-            specialized = await asyncio.to_thread(self._scan_javascript, file_path)
-
-        elif filename.endswith(".svg") or "svg" in file_type:
-            specialized = await asyncio.to_thread(self._scan_svg, file_path)
-
-        else:
-            specialized = await asyncio.to_thread(self._scan_generic, file_path)
+        # ═══════════════════════════════════════════════════════════════════
+        # FIRE BOTH TASKS IN PARALLEL
+        # ═══════════════════════════════════════════════════════════════════
+        vt_report, specialized = await asyncio.gather(
+            fetch_reputation(),
+            run_local_analysis()
+        )
 
         # ── FINAL VERDICT ─────────────────────────────────────────────
         final_verdict = self._consolidate_verdict(vt_report, specialized)
 
         return {
-            "risk_level":        final_verdict["risk_level"],
-            "reason":            final_verdict["reason"],
-            "mime_type":         file_type,
-            "file_hash":         file_hash,
+            "risk_level": final_verdict["risk_level"],
+            "reason": final_verdict["reason"],
+            "mime_type": file_type,
+            "file_hash": file_hash,
             "global_reputation": vt_report,
-            "scan_details":      specialized,
-            "threat_detected":   final_verdict["risk_level"] == "DANGER",
+            "scan_details": specialized,
+            "threat_detected": final_verdict["risk_level"] == "DANGER",
         }
 
     # ═══════════════════════════════════════════════════════════════════
@@ -367,15 +369,15 @@ class AeglisEngine:
         → External relationships
         """
         findings = {
-            "type":             "OFFICE_MACRO_ANALYSIS",
-            "has_macros":       False,
-            "danger_keywords":  [],
+            "type": "OFFICE_MACRO_ANALYSIS",
+            "has_macros": False,
+            "danger_keywords": [],
             "suspicious_keywords": [],
-            "auto_exec_found":  False,
+            "auto_exec_found": False,
             "suspicious_flags": [],
-            "threat_detected":  False,
-            "risk_level":       "SAFE",
-            "reason":           "No macros or suspicious content found."
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "No macros or suspicious content found."
         }
 
         filename = os.path.basename(path).lower()
@@ -467,7 +469,7 @@ class AeglisEngine:
         # ── Final verdict ──────────────────────────────────────────────
         if findings["danger_keywords"]:
             findings["threat_detected"] = True
-            findings["risk_level"]      = "DANGER"
+            findings["risk_level"] = "DANGER"
             auto_note = " Auto-execute trigger found." if findings["auto_exec_found"] else ""
             findings["reason"] = (
                 f"Office file contains dangerous macro keywords: "
@@ -477,7 +479,7 @@ class AeglisEngine:
 
         elif findings["has_macros"] and findings["suspicious_keywords"]:
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = (
+            findings["reason"] = (
                 f"Office file contains macros with suspicious patterns: "
                 f"{', '.join(findings['suspicious_keywords'][:3])}. "
                 f"Only open if you fully trust the sender."
@@ -485,7 +487,7 @@ class AeglisEngine:
 
         elif findings["has_macros"]:
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = (
+            findings["reason"] = (
                 "Office file contains macros. "
                 "Macros can execute code automatically. "
                 "Only enable if you trust the sender completely."
@@ -493,7 +495,7 @@ class AeglisEngine:
 
         elif findings["suspicious_flags"]:
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = (
+            findings["reason"] = (
                 f"Office file has suspicious properties: "
                 f"{', '.join(findings['suspicious_flags'][:3])}."
             )
@@ -514,14 +516,14 @@ class AeglisEngine:
         → Path traversal attacks (../ in filenames)
         """
         findings = {
-            "type":             "ZIP_ANALYSIS",
-            "files_inside":     [],
-            "dangerous_files":  [],
-            "nested_zips":      0,
+            "type": "ZIP_ANALYSIS",
+            "files_inside": [],
+            "dangerous_files": [],
+            "nested_zips": 0,
             "suspicious_flags": [],
-            "threat_detected":  False,
-            "risk_level":       "SAFE",
-            "reason":           "Archive appears clean."
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "Archive appears clean."
         }
 
         try:
@@ -566,24 +568,24 @@ class AeglisEngine:
                     )
 
         except Exception as e:
-            findings["error"]      = f"ZIP scan failed: {e}"
+            findings["error"] = f"ZIP scan failed: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "Archive could not be fully analyzed — treat with caution."
+            findings["reason"] = "Archive could not be fully analyzed — treat with caution."
             return findings
 
         # Verdict
         has_exe = bool(findings["dangerous_files"])
         if has_exe:
             findings["threat_detected"] = True
-            findings["risk_level"]      = "DANGER"
-            findings["reason"]          = (
+            findings["risk_level"] = "DANGER"
+            findings["reason"] = (
                 f"Archive contains dangerous executable files: "
                 f"{', '.join(findings['dangerous_files'][:3])}. "
                 f"Do NOT extract or run these files."
             )
         elif findings["suspicious_flags"]:
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = (
+            findings["reason"] = (
                 f"Archive has suspicious properties: "
                 f"{', '.join(findings['suspicious_flags'][:3])}."
             )
@@ -603,17 +605,17 @@ class AeglisEngine:
         """
         target_lang = LANGUAGE_MAP.get(lang, "English")
         findings = {
-            "type":             "SCRIPT_ANALYSIS",
+            "type": "SCRIPT_ANALYSIS",
             "matched_patterns": [],
             "suspicious_flags": [],
-            "threat_detected":  False,
-            "risk_level":       "SAFE",
-            "reason":           "Script appears clean."
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "Script appears clean."
         }
 
         try:
             with open(path, "rb") as f:
-                content = f.read(1024 * 512)  # First 512KB
+                content = f.read(1024 * 512) # First 512KB
 
             content_lower = content.lower()
 
@@ -629,7 +631,7 @@ class AeglisEngine:
 
             if len(findings["matched_patterns"]) >= 3 or ai_score >= 8:
                 findings["threat_detected"] = True
-                findings["risk_level"]      = "DANGER"
+                findings["risk_level"] = "DANGER"
 
                 # AI se reason generate karo user ki language mein
                 try:
@@ -659,16 +661,16 @@ class AeglisEngine:
 
             elif findings["matched_patterns"] or ai_score >= 5:
                 findings["risk_level"] = "WARNING"
-                findings["reason"]     = (
+                findings["reason"] = (
                     f"Script contains potentially suspicious patterns: "
                     f"{', '.join(findings['matched_patterns'][:3])}. "
                     f"Verify with sender before running."
                 )
 
         except Exception as e:
-            findings["error"]      = f"Script scan failed: {e}"
+            findings["error"] = f"Script scan failed: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "Script could not be analyzed — do not run untrusted scripts."
+            findings["reason"] = "Script could not be analyzed — do not run untrusted scripts."
 
         return findings
 
@@ -688,18 +690,18 @@ class AeglisEngine:
         → Data exfiltration patterns
         """
         findings = {
-            "type":             "JAVASCRIPT_ANALYSIS",
+            "type": "JAVASCRIPT_ANALYSIS",
             "obfuscation_score": 0,
             "matched_patterns": [],
             "suspicious_flags": [],
-            "threat_detected":  False,
-            "risk_level":       "SAFE",
-            "reason":           "JavaScript appears clean."
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "JavaScript appears clean."
         }
 
         try:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read(1024 * 512)  # First 512KB
+                content = f.read(1024 * 512) # First 512KB
 
             # Obfuscation pattern matching
             for pattern in JS_OBFUSCATION_PATTERNS:
@@ -738,8 +740,8 @@ class AeglisEngine:
             # Verdict based on score
             if findings["obfuscation_score"] >= 30 or any("CRYPTO_MINING" in f for f in findings["suspicious_flags"]):
                 findings["threat_detected"] = True
-                findings["risk_level"]      = "DANGER"
-                findings["reason"]          = (
+                findings["risk_level"] = "DANGER"
+                findings["reason"] = (
                     f"JavaScript is heavily obfuscated or contains malicious patterns. "
                     f"Obfuscation score: {findings['obfuscation_score']}. "
                     f"Flags: {', '.join((findings['suspicious_flags'] + findings['matched_patterns'])[:3])}."
@@ -747,16 +749,16 @@ class AeglisEngine:
 
             elif findings["obfuscation_score"] >= 10 or findings["suspicious_flags"]:
                 findings["risk_level"] = "WARNING"
-                findings["reason"]     = (
+                findings["reason"] = (
                     f"JavaScript contains suspicious patterns "
                     f"(obfuscation score: {findings['obfuscation_score']}). "
                     f"Review before execution."
                 )
 
         except Exception as e:
-            findings["error"]      = f"JS scan failed: {e}"
+            findings["error"] = f"JS scan failed: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "JavaScript file could not be fully analyzed."
+            findings["reason"] = "JavaScript file could not be fully analyzed."
 
         return findings
 
@@ -770,11 +772,11 @@ class AeglisEngine:
         SVGs can contain <script> tags and event handlers — dangerous in browsers.
         """
         findings = {
-            "type":             "SVG_ANALYSIS",
+            "type": "SVG_ANALYSIS",
             "suspicious_flags": [],
-            "threat_detected":  False,
-            "risk_level":       "SAFE",
-            "reason":           "SVG file appears clean."
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "SVG file appears clean."
         }
 
         try:
@@ -832,24 +834,24 @@ class AeglisEngine:
 
             if critical_flags:
                 findings["threat_detected"] = True
-                findings["risk_level"]      = "DANGER"
-                findings["reason"]          = (
+                findings["risk_level"] = "DANGER"
+                findings["reason"] = (
                     f"SVG contains embedded JavaScript or XSS vectors: "
                     f"{', '.join(critical_flags[:3])}. "
                     f"Do not open this SVG in a browser."
                 )
             elif findings["suspicious_flags"]:
                 findings["risk_level"] = "WARNING"
-                findings["reason"]     = (
+                findings["reason"] = (
                     f"SVG has suspicious properties: "
                     f"{', '.join(findings['suspicious_flags'][:3])}. "
                     f"Review before use."
                 )
 
         except Exception as e:
-            findings["error"]      = f"SVG scan failed: {e}"
+            findings["error"] = f"SVG scan failed: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "SVG could not be analyzed."
+            findings["reason"] = "SVG could not be analyzed."
 
         return findings
 
@@ -867,14 +869,14 @@ class AeglisEngine:
         NOTE: File is read locally — never uploaded anywhere.
         """
         findings = {
-            "type":             "EXECUTABLE_ANALYSIS",
-            "is_signed":        False,
+            "type": "EXECUTABLE_ANALYSIS",
+            "is_signed": False,
             "suspicious_imports": [],
             "suspicious_strings": [],
             "suspicious_flags": [],
-            "threat_detected":  False,
-            "risk_level":       "WARNING",  # executables always WARNING minimum
-            "reason":           "Executable file — always verify source before running."
+            "threat_detected": False,
+            "risk_level": "WARNING", # executables always WARNING minimum
+            "reason": "Executable file — always verify source before running."
         }
 
         # pefile PE header analysis
@@ -939,15 +941,15 @@ class AeglisEngine:
 
         if critical_imports or len(findings["suspicious_strings"]) >= 4:
             findings["threat_detected"] = True
-            findings["risk_level"]      = "DANGER"
-            findings["reason"]          = (
+            findings["risk_level"] = "DANGER"
+            findings["reason"] = (
                 f"Executable uses highly suspicious API calls: "
                 f"{', '.join((critical_imports + findings['suspicious_strings'])[:3])}. "
                 f"This may be a keylogger, injector, or downloader."
             )
         elif findings["suspicious_strings"] or findings["suspicious_imports"]:
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = (
+            findings["reason"] = (
                 f"Executable contains suspicious patterns: "
                 f"{', '.join((findings['suspicious_strings'] + findings['suspicious_imports'])[:3])}. "
                 f"Verify source before running."
@@ -962,16 +964,16 @@ class AeglisEngine:
     def _scan_pdf(self, path: str) -> dict:
         """PDF: Hidden JS, Auto-open triggers, Malicious links, Embedded files."""
         findings = {
-            "type":             "PDF_ANALYSIS",
+            "type": "PDF_ANALYSIS",
             "suspicious_flags": [],
-            "indicators":       [],
-            "threat_detected":  False,
-            "risk_level":       "SAFE",
-            "reason":           "PDF appears clean."
+            "indicators": [],
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "PDF appears clean."
         }
         try:
             content = extract_text(path)
-            urls    = list(set(URL_PATTERN.findall(content)))
+            urls = list(set(URL_PATTERN.findall(content)))
             findings["indicators"] = urls
 
             # FIX: Seedha WebRisk call — useless url_res=None check hata diya
@@ -984,13 +986,13 @@ class AeglisEngine:
             with open(path, "rb") as f:
                 raw = f.read()
                 checks = {
-                    b"/JS":           "HIDDEN_JAVASCRIPT",
-                    b"/JavaScript":   "HIDDEN_JAVASCRIPT",
-                    b"/OpenAction":   "AUTO_EXECUTE_ON_OPEN",
-                    b"/Launch":       "LAUNCH_ACTION",
+                    b"/JS": "HIDDEN_JAVASCRIPT",
+                    b"/JavaScript": "HIDDEN_JAVASCRIPT",
+                    b"/OpenAction": "AUTO_EXECUTE_ON_OPEN",
+                    b"/Launch": "LAUNCH_ACTION",
                     b"/EmbeddedFile": "EMBEDDED_FILE",
-                    b"/AA":           "ADDITIONAL_ACTION_TRIGGER",
-                    b"/RichMedia":    "RICH_MEDIA_EMBED",
+                    b"/AA": "ADDITIONAL_ACTION_TRIGGER",
+                    b"/RichMedia": "RICH_MEDIA_EMBED",
                 }
                 for sig, flag in checks.items():
                     if sig in raw:
@@ -998,17 +1000,17 @@ class AeglisEngine:
 
             if findings["suspicious_flags"]:
                 findings["threat_detected"] = True
-                findings["risk_level"]      = "DANGER"
-                findings["reason"]          = (
+                findings["risk_level"] = "DANGER"
+                findings["reason"] = (
                     f"PDF contains dangerous elements: "
                     f"{', '.join(findings['suspicious_flags'][:4])}. "
                     f"Do not open in a standard PDF reader."
                 )
 
         except Exception as e:
-            findings["error"]      = f"PDF scan failed: {e}"
+            findings["error"] = f"PDF scan failed: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "PDF could not be fully analyzed — treat with caution."
+            findings["reason"] = "PDF could not be fully analyzed — treat with caution."
 
         return findings
 
@@ -1020,20 +1022,20 @@ class AeglisEngine:
         """APK permissions analysis + Groq reason generation."""
         target_lang = LANGUAGE_MAP.get(lang, "English")
         findings = {
-            "type":                  "APK_ADVANCED_SCAN",
-            "risk_score":            0,
+            "type": "APK_ADVANCED_SCAN",
+            "risk_score": 0,
             "dangerous_permissions": [],
-            "permission_risk_map":   {},
-            "threat_detected":       False,
-            "risk_level":            "SAFE",
-            "reason":                "No dangerous permissions found."
+            "permission_risk_map": {},
+            "threat_detected": False,
+            "risk_level": "SAFE",
+            "reason": "No dangerous permissions found."
         }
         try:
             # AnalyzeAPK ek heavy sync call hai — event loop block na ho isliye
             # background thread mein chalate hain
             a, d, dx = await asyncio.to_thread(AnalyzeAPK, path)
-            findings["package"]  = a.get_package()
-            permissions          = a.get_permissions()
+            findings["package"] = a.get_package()
+            permissions = a.get_permissions()
             findings["metadata"] = {"permissions_count": len(permissions)}
 
             for p in permissions:
@@ -1056,7 +1058,7 @@ class AeglisEngine:
 
                 if risk_score >= 50 or critical_perms:
                     findings["threat_detected"] = True
-                    findings["risk_level"]      = "DANGER"
+                    findings["risk_level"] = "DANGER"
                     try:
                         completion = await self.groq_client.chat.completions.create(
                             messages=[{"role": "user", "content": (
@@ -1077,14 +1079,14 @@ class AeglisEngine:
                         )
                 elif risk_score >= 20:
                     findings["risk_level"] = "WARNING"
-                    findings["reason"]     = (
+                    findings["reason"] = (
                         f"APK requests {len(findings['dangerous_permissions'])} sensitive permissions. "
                         f"Install with caution."
                     )
         except Exception as e:
-            findings["error"]      = f"APK Error: {e}"
+            findings["error"] = f"APK Error: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "APK could not be fully analyzed — treat with caution."
+            findings["reason"] = "APK could not be fully analyzed — treat with caution."
 
         return findings
 
@@ -1096,15 +1098,15 @@ class AeglisEngine:
         """EXIF forensics + Groq Vision phishing detection."""
         target_lang = LANGUAGE_MAP.get(lang, "English")
         findings = {
-            "type":            "AEGLIS_VISION_SCAN",
-            "metadata":        {},
-            "extracted_text":  "",
+            "type": "AEGLIS_VISION_SCAN",
+            "metadata": {},
+            "extracted_text": "",
             "threat_detected": False,
-            "risk_level":      "SAFE",
-            "reason":          "Image appears clean."
+            "risk_level": "SAFE",
+            "reason": "Image appears clean."
         }
         try:
-            img  = Image.open(path)
+            img = Image.open(path)
             exif = img._getexif() if hasattr(img, "_getexif") else None
             if exif:
                 findings["metadata"] = {
@@ -1141,25 +1143,25 @@ class AeglisEngine:
                 response_format={"type": "json_object"}
             )
 
-            data  = json.loads(completion.choices[0].message.content)
+            data = json.loads(completion.choices[0].message.content)
             score = int(data.get("suspicion_score", 1))
             findings["extracted_text"] = data.get("extracted_text", "")
 
             if score >= 7:
                 findings["threat_detected"] = True
-                findings["risk_level"]      = "DANGER"
-                findings["reason"]          = data.get("reason", "Scam content detected in image.")
+                findings["risk_level"] = "DANGER"
+                findings["reason"] = data.get("reason", "Scam content detected in image.")
             elif score >= 4:
                 findings["risk_level"] = "WARNING"
-                findings["reason"]     = data.get("reason", "Image contains potentially suspicious content.")
+                findings["reason"] = data.get("reason", "Image contains potentially suspicious content.")
             else:
                 findings["risk_level"] = "SAFE"
-                findings["reason"]     = data.get("reason", "Image appears clean.")
+                findings["reason"] = data.get("reason", "Image appears clean.")
 
         except Exception as e:
-            findings["error"]      = f"Vision Engine Failed: {e}"
+            findings["error"] = f"Vision Engine Failed: {e}"
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "Image could not be analyzed — proceed with caution."
+            findings["reason"] = "Image could not be analyzed — proceed with caution."
 
         return findings
 
@@ -1170,11 +1172,11 @@ class AeglisEngine:
     def _scan_generic(self, path: str) -> dict:
         """Fallback: URL extraction + code injection keyword detection."""
         findings = {
-            "type":            "GENERIC_SCAN",
-            "indicators":      [],
+            "type": "GENERIC_SCAN",
+            "indicators": [],
             "threat_detected": False,
-            "risk_level":      "SAFE",
-            "reason":          "No obvious threats found."
+            "risk_level": "SAFE",
+            "reason": "No obvious threats found."
         }
         try:
             with open(path, "rb") as f:
@@ -1187,12 +1189,12 @@ class AeglisEngine:
 
             if found:
                 findings["threat_detected"] = True
-                findings["risk_level"]      = "DANGER"
-                findings["reason"]          = f"Code injection keywords detected: {', '.join(found[:3])}"
+                findings["risk_level"] = "DANGER"
+                findings["reason"] = f"Code injection keywords detected: {', '.join(found[:3])}"
 
         except Exception as e:
-            findings["error"]      = str(e)
+            findings["error"] = str(e)
             findings["risk_level"] = "WARNING"
-            findings["reason"]     = "File could not be fully analyzed."
+            findings["reason"] = "File could not be fully analyzed."
 
         return findings
