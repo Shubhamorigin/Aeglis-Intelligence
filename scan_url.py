@@ -185,13 +185,15 @@ async def detonate_url(target_url: str) -> dict:
 
             # ── 1. NAVIGATE ───────────────────────────────────────────────────
             # 6000ms: balanced — handles slow legit sites, exits fast on tarpits
+            print(f"\n[DEBUG - PLAYWRIGHT] 🌐 Loading URL: {target_url}")
             try:
                 # Timeout thoda badha kar 8000ms kar diya
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=8000)
+                print("[DEBUG - PLAYWRIGHT] ✅ Page loaded successfully within 8s.")
             except Exception as e:
                 # Agar timeout ho jaye, toh script ko rokna nahi hai! 
                 # Hum silently pass karenge taaki bacha-kucha screenshot aa jaye.
-                print(f"[Sandbox] Timeout or loading delay on {target_url}, capturing partial load...")
+                print(f"[DEBUG - PLAYWRIGHT] ⚠️ Timeout/Error during goto: {e}. Trying to continue...")
                 pass
             # Capture post-navigation URL (handles js redirects)
             try:
@@ -216,12 +218,18 @@ async def detonate_url(target_url: str) -> dict:
             # spoofed bank UIs, cloned pages — all visible at first scroll.
             # Saving: ~50-70% smaller image vs full_page=True, no detection loss.
             # quality=50: imperceptible quality drop, meaningful size reduction.
-            screenshot_bytes = await page.screenshot(
-                type="jpeg",
-                quality=50,
-                full_page=False,   # Viewport only — phishing is above the fold
-            )
-            scan_result["screenshot_base64"] = base64.b64encode(screenshot_bytes).decode("utf-8")
+            print("[DEBUG - PLAYWRIGHT] 📸 Attempting to capture screenshot...")
+            try:
+                screenshot_bytes = await page.screenshot(
+                    type="jpeg",
+                    quality=50,
+                    full_page=False,   # Viewport only — phishing is above the fold
+                )
+                scan_result["screenshot_base64"] = base64.b64encode(screenshot_bytes).decode("utf-8")
+                print(f"[DEBUG - PLAYWRIGHT] ✅ Screenshot captured! Base64 Length: {len(scan_result['screenshot_base64'])}")
+            except Exception as e:
+                print(f"[DEBUG - PLAYWRIGHT] ❌ SCREENSHOT FAILED: {e}")
+                scan_result["screenshot_base64"] = None
 
             # ── 6. PARSE TEXT (lxml if available, 2-3x faster) ───────────────
             soup = BeautifulSoup(raw_html, _HTML_PARSER)
