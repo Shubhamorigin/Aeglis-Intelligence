@@ -1,6 +1,12 @@
-# Aeglis Backend
+# Aeglis Intelligence
 
-Aeglis Backend is a Python FastAPI-based cybersecurity and risk-analysis service for detecting suspicious URLs, text-based scam content, malicious files, malware patterns, and risky Android APKs. It combines local detection logic, third-party threat intelligence, and AI-based analysis to produce risk scores and explanations for user-facing security workflows.
+## Builder
+
+Built by **Shubham**.
+
+[<img src="https://api.aaptics.in/widget/shubhamoriginx.svg?v=1" alt="Aaptics ID">](https://aaptics.in/@shubhamoriginx)
+
+Aeglis Intelligence is a Python FastAPI-based cybersecurity and risk-analysis service for detecting suspicious URLs, text-based scam content, malicious files, malware patterns, and risky Android APKs. It combines local detection logic, third-party threat intelligence, and AI-based analysis to produce risk scores and explanations for user-facing security workflows.
 
 The project supports both consumer and developer use cases:
 
@@ -355,7 +361,7 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 
 ## Summary
 
-Aeglis Backend is a full-stack security analysis application for detecting risky content across text, URLs, files, and endpoints. It is designed for both consumer apps and developer integrations and includes API protection, billing, webhook delivery, and secure storage workflows.
+Aeglis Intelligence is a full-stack security analysis application for detecting risky content across text, URLs, files, and endpoints. It is designed for both consumer apps and developer integrations and includes API protection, billing, webhook delivery, and secure storage workflows.
 
 For local development, the main tasks are:
 
