@@ -5,7 +5,7 @@ import concurrent.futures
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
-# ── LOGGING ──────────────────────────────────────────────────────────────────
+# Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("aeglis.sandbox")
 logger.setLevel(logging.WARNING)
@@ -14,15 +14,14 @@ logger.setLevel(logging.WARNING)
 for _noisy in ("httpx", "websockets", "playwright", "asyncio"):
     logging.getLogger(_noisy).setLevel(logging.ERROR)
 
-# ── HTML PARSER (lxml 2-3x faster than html.parser; fallback if not installed) ──
+# Use lxml when available, with the standard parser as a fallback.
 try:
     import lxml  # noqa: F401
     _HTML_PARSER = "lxml"
 except ImportError:
     _HTML_PARSER = "html.parser"
 
-# ── CHROMIUM LAUNCH ARGS ─────────────────────────────────────────────────────
-# These args collectively reduce Chromium RAM by ~80-120 MB per launch
+# Chromium launch arguments. These options reduce memory use per launch.
 _CHROMIUM_ARGS = [
     "--no-sandbox",
     "--disable-setuid-sandbox",
@@ -88,10 +87,10 @@ async def detonate_url(target_url: str) -> dict:
 
             page = await context.new_page()
 
-            # ── AUTO-DISMISS DIALOGS (alert/confirm/prompt) ───────────────────
+            # Dismiss JavaScript dialogs automatically.
             page.on("dialog", lambda d: asyncio.create_task(d.dismiss()))
 
-            # ── JS BEHAVIOR SIGNALS ───────────────────────────────────────────
+            # Track suspicious JavaScript behavior.
             js_alerts = {
                 "clipboard_write_detected":    False,
                 "suspicious_redirect":         False,
@@ -113,8 +112,7 @@ async def detonate_url(target_url: str) -> dict:
                 }
             """)
 
-            # Pull JS-side flags into Python after page settles
-            # BUG FIX: this was defined but never called — clipboard detection was silently broken
+            # Copy browser-side behavior flags into the Python result.
             async def sync_js_markers():
                 try:
                     if await page.evaluate("() => window.__AeglisClipboardWrite === true"):
@@ -122,7 +120,7 @@ async def detonate_url(target_url: str) -> dict:
                 except Exception:
                     pass
 
-            # ── REDIRECT DETECTION (main frame only) ─────────────────────────
+            # Track redirects in the main frame.
             async def handle_navigation(frame):
                 try:
                     if frame != page.main_frame:
@@ -137,7 +135,7 @@ async def detonate_url(target_url: str) -> dict:
 
             page.on("framenavigated", lambda f: asyncio.create_task(handle_navigation(f)))
 
-            # ── NETWORK EXFIL + CRYPTO MINING DETECTION ──────────────────────
+            # Detect possible data exfiltration and crypto-mining requests.
             _EXFIL_SIGNALS   = {"collect", "exfil", "steal", "bot", "miner", "mine", "stratum"}
             _MINING_SIGNALS  = {"miner", "mining", "stratum", "hashrate"}
             _SENSITIVE_KEYS  = {"login", "auth", "password", "wallet", "seed", "mnemonic", "keystore"}
@@ -155,9 +153,8 @@ async def detonate_url(target_url: str) -> dict:
 
             page.on("request", lambda r: asyncio.create_task(handle_request(r)))
 
-            # ── KEYLOGGER DETECTION (best-effort via domcontentloaded) ────────
-            # NOTE: getEventListeners is DevTools-only — not available in page context.
-            # This signals True only on pages that explicitly expose it (rare but valid signal).
+            # Probe for exposed event-listener inspection APIs as a weak keylogger signal.
+            # getEventListeners is normally available only in DevTools.
             async def probe_keylogger():
                 try:
                     if await page.evaluate(
@@ -169,7 +166,7 @@ async def detonate_url(target_url: str) -> dict:
 
             page.on("domcontentloaded", lambda: asyncio.create_task(probe_keylogger()))
 
-            # ── RESPONSE DOMAIN TRACKING ──────────────────────────────────────
+            # Track domains contacted by page responses.
             async def handle_response(response):
                 try:
                     network_domains.add(response.url.split("/")[2])
@@ -179,20 +176,16 @@ async def detonate_url(target_url: str) -> dict:
             page.on("response", handle_response)
 
     
-            # ═══════════════════════════════════════════════════════════════════
-            # MAIN EXECUTION
-            # ═══════════════════════════════════════════════════════════════════
+            # Main execution
 
-            # ── 1. NAVIGATE ───────────────────────────────────────────────────
-            # 6000ms: balanced — handles slow legit sites, exits fast on tarpits
+            # 1. Navigate to the target URL.
             print(f"\n[DEBUG - PLAYWRIGHT] 🌐 Loading URL: {target_url}")
             try:
-                # Timeout thoda badha kar 8000ms kar diya
+                # Allow extra time for slow but legitimate sites.
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=8000)
                 print("[DEBUG - PLAYWRIGHT] ✅ Page loaded successfully within 8s.")
             except Exception as e:
-                # Agar timeout ho jaye, toh script ko rokna nahi hai! 
-                # Hum silently pass karenge taaki bacha-kucha screenshot aa jaye.
+                # Continue so any available page content can still be captured.
                 print(f"[DEBUG - PLAYWRIGHT] ⚠️ Timeout/Error during goto: {e}. Trying to continue...")
                 pass
             # Capture post-navigation URL (handles js redirects)
@@ -201,29 +194,22 @@ async def detonate_url(target_url: str) -> dict:
             except Exception:
                 pass
 
-            # ── 2. LET DYNAMIC CONTENT SETTLE ────────────────────────────────
-            # 1000ms: sufficient for most JS-rendered phishing pages
-            # (was 1500ms — saved 500ms per scan, ~33% faster)
+            # 2. Allow dynamic content to settle.
             await page.wait_for_timeout(1000)
 
-            # ── 3. SYNC JS-SIDE FLAGS (BUG FIX: was never called before) ─────
+            # 3. Copy browser-side behavior flags into the result.
             await sync_js_markers()
 
-            # ── 4. EXTRACT RAW HTML ───────────────────────────────────────────
+            # 4. Extract the raw HTML.
             raw_html = await page.content()
 
-            # ── 5. SCREENSHOT — VIEWPORT ONLY ────────────────────────────────
-            # full_page=False (default): captures only 1280×800 viewport.
-            # Phishing content is ALWAYS above the fold — fake login forms,
-            # spoofed bank UIs, cloned pages — all visible at first scroll.
-            # Saving: ~50-70% smaller image vs full_page=True, no detection loss.
-            # quality=50: imperceptible quality drop, meaningful size reduction.
+            # 5. Capture only the initial viewport to reduce image size.
             print("[DEBUG - PLAYWRIGHT] 📸 Attempting to capture screenshot...")
             try:
                 screenshot_bytes = await page.screenshot(
                     type="jpeg",
                     quality=50,
-                    full_page=False,   # Viewport only — phishing is above the fold
+                    full_page=False,   # Most phishing content appears above the fold.
                 )
                 scan_result["screenshot_base64"] = base64.b64encode(screenshot_bytes).decode("utf-8")
                 print(f"[DEBUG - PLAYWRIGHT] ✅ Screenshot captured! Base64 Length: {len(scan_result['screenshot_base64'])}")
@@ -231,15 +217,15 @@ async def detonate_url(target_url: str) -> dict:
                 print(f"[DEBUG - PLAYWRIGHT] ❌ SCREENSHOT FAILED: {e}")
                 scan_result["screenshot_base64"] = None
 
-            # ── 6. PARSE TEXT (lxml if available, 2-3x faster) ───────────────
+            # 6. Extract visible text from the page.
             soup = BeautifulSoup(raw_html, _HTML_PARSER)
             for tag in soup(["script", "style", "noscript", "meta", "head"]):
                 tag.extract()
 
             extracted_text = soup.get_text(separator=" ", strip=True)
 
-            # ── 7. ASSEMBLE RESULT ────────────────────────────────────────────
-            scan_result["extracted_text"]  = extracted_text[:10000]  # 10k chars: richer AI context (was 6000)
+            # 7. Assemble the scan result.
+            scan_result["extracted_text"]  = extracted_text[:10000]  # Keep the AI context bounded.
             scan_result["network_traffic"] = list(network_domains)[:10]
             scan_result["redirect_chain"]  = list(dict.fromkeys(final_urls))[-10:]  # dedupe, last 10
 
@@ -263,7 +249,7 @@ async def detonate_url(target_url: str) -> dict:
         finally:
             if browser:
                 try:
-                    await context.close()   # Close context first (releases page memory)
+                    await context.close()   # Release page resources before closing the browser.
                 except Exception:
                     pass
                 await browser.close()
@@ -271,7 +257,7 @@ async def detonate_url(target_url: str) -> dict:
     return scan_result
 
 
-# ── THREAD ISOLATION ──────────────────────────────────────────────────────────
+# Thread isolation
 
 def _run_in_fresh_loop(target_url: str) -> dict:
     """

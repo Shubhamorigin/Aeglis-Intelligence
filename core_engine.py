@@ -15,10 +15,10 @@ from input_classifier import classify_input
 from datetime import datetime
 import redis
 
-# ── REDIS SETUP ───────────────────────────────────────────────────────
+# Redis setup
 REDIS_CLIENT = None
 try:
-    # Use Upstash/Redis URL (preferred)
+    # Read the Redis connection URL from the environment.
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
         raise ValueError("REDIS_URL is not set")
@@ -35,9 +35,9 @@ except Exception as _re:
     REDIS_CLIENT = None
 
 REDIS_TTL = {
-    "SAFE": 86400, # 24 ghante
-    "DANGER": 604800, # 7 din
-    "WARNING": 43200, # 12 ghante
+    "SAFE": 86400, # 24 hours
+    "DANGER": 604800, # 7 days
+    "WARNING": 43200, # 12 hours
 }
 
 ALL_LANGUAGES = ["en", "hi", "ar", "es", "pt", "in"]
@@ -71,7 +71,7 @@ def get_domain_age(domain: str) -> int | None:
     if domain in _DOMAIN_AGE_CACHE:
         return _DOMAIN_AGE_CACHE[domain]
 
-    # ── RDAP LOOKUP ───────────────────────────────────────────────────────
+    # Look up the registration record through RDAP.
     base_url = "https://rdap.verisign.com/com/v1/domain/"
     url = urljoin(base_url, domain)
 
@@ -84,7 +84,7 @@ def get_domain_age(domain: str) -> int | None:
 
         if response.status_code != 200:
             # Transient: server error, rate-limited, etc.
-            # DO NOT cache — caller should treat None as "unknown, try again later."
+            # Do not cache transient failures; callers can retry them later.
             print(f"[RDAP] Server returned {response.status_code} for '{domain}'")
             return None
 
@@ -95,26 +95,26 @@ def get_domain_age(domain: str) -> int | None:
         print(f"[RDAP] Transient error for '{domain}': {e}")
         return None
 
-    # ── EXTRACT registration date ─────────────────────────────────────────
+    # Extract the registration date.
     if "events" not in data:
-        # RDAP succeeded but structure changed — safe to cache as -1
+        # Cache an invalid result when the RDAP response has no events.
         _DOMAIN_AGE_CACHE[domain] = -1
         return -1
 
     raw_date = None
     for event in data["events"]:
         if event.get("eventAction") == "registration":
-            raw_date = event.get("eventDate") # e.g. "1997-09-15T04:00:00Z"
+            raw_date = event.get("eventDate") # Example: "1997-09-15T04:00:00Z".
             break
 
     if not raw_date:
-        # RDAP responded but registration date genuinely missing
+        # The response is valid, but no registration date was provided.
         _DOMAIN_AGE_CACHE[domain] = -1
         return -1
 
-    # ── PARSE + CALCULATE ────────────────────────────────────────────────
+    # Parse the date and calculate the domain age.
     try:
-        clean_date_str = raw_date[:10] # "YYYY-MM-DD"
+        clean_date_str = raw_date[:10] # Keep the date portion only.
         creation_date = datetime.strptime(clean_date_str, "%Y-%m-%d")
     except ValueError:
         _DOMAIN_AGE_CACHE[domain] = -1
@@ -128,20 +128,17 @@ def get_domain_age(domain: str) -> int | None:
 
 
 
-# 1. Load Environment Variables
+# Load environment variables.
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 VT_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
 WEBRISK_API_KEY = os.getenv("WEB_RISK_API_KEY")
 
-# --- MASTER WHITELIST (O(1) lookup speed) ---
+# Master whitelist for constant-time lookups.
 MASTER_WHITELIST = set()
 
 def load_master_whitelist(filepath="white_listed.csv", limit=10000):
-    """
-    CSV se Top 1 Lakh pure domains RAM me load karta hai.
-    Call this ONLY ONCE when the server starts.
-    """
+    """Load up to 100,000 domains into memory at startup."""
     global MASTER_WHITELIST
     if not os.path.exists(filepath):
         print(f"Whitelist warning: '{filepath}' not found. Whitelist is empty.")
@@ -208,7 +205,7 @@ def get_base_domain(domain: str) -> str:
     if len(parts) <= 2:
         return domain
 
-    # Common 2-label public suffixes where we need 3 labels total
+    # Public suffixes that require three labels for the base domain.
     two_label_suffixes = {
         "co.uk", "org.uk", "ac.uk", "gov.uk",
         "com.au", "net.au", "org.au", "edu.au",
@@ -227,7 +224,7 @@ def get_base_domain(domain: str) -> str:
 
     return ".".join(parts[-2:])
 
-# Server start hote hi file load kar lo
+# Load the whitelist when the server starts.
 load_master_whitelist("white_listed.csv", limit=100000)
 URL_PATTERN = re.compile(
     r'(?:https?://[^\s<>"]+|www\.[^\s<>"]+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
@@ -250,18 +247,15 @@ def unmask_short_url(url):
         print(f"Unmasking failed for {url}: {e}")
         return url
 
-# --- HELPER FUNCTIONS ---
+# Helper functions
 def is_valid_hash(text):
     text = text.strip()
     return len(text) in [32, 40, 64] and text.isalnum()
 
-# ── REDIS HELPERS ─────────────────────────────────────────────────────
+# Redis helpers
 
 def get_redis_base_key(user_input: str) -> str:
-    """
-    URL → base domain se key
-    Text/hash → MD5 hash se key
-    """
+    """Build a cache key from a base domain or an input hash."""
     url_match = URL_PATTERN.search(user_input.strip()) if 'URL_PATTERN' in globals() else None
     if url_match:
         domain = extract_pure_domain_from_user_input(url_match.group(0))
@@ -297,7 +291,7 @@ def redis_set(base_key: str, lang: str, risk_level: str, reason: str):
         print(f"Redis SET error: {e}")
 
 def translate_reason_sync(reason_en: str, lang: str) -> str:
-    """English reason ko target language mein translate karo."""
+    """Translate an English reason into the requested language."""
     if lang == "en" or not reason_en:
         return reason_en
     
@@ -322,7 +316,7 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
                     }
                 ],
                 "temperature": 0.1,
-                "max_tokens": 1024 # Breathing room badha diya taaki cut na ho
+                "max_tokens": 1024 # Leave enough room for the translated text.
             },
             timeout=15
         )
@@ -330,7 +324,7 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
         if resp.status_code == 200:
             translated_text = resp.json()["choices"][0]["message"]["content"].strip()
             
-            # Agar output cut hone ki wajah se ya glitch se khali aaya, toh English return kar do
+            # Use the English reason if the translation is empty.
             if translated_text:
                 return translated_text
             else:
@@ -342,13 +336,10 @@ def translate_reason_sync(reason_en: str, lang: str) -> str:
     except Exception as e:
         print(f"[TRANSLATE] Exception for ({lang}): {e}")
         
-    return reason_en # Fallback
+    return reason_en # English fallback.
     
 def background_translate_and_cache(base_key: str, risk_level: str, reason_en: str, skip_lang: str):
-    """
-    Daemon thread mein baaki 5 languages translate karke Redis mein store karo.
-    skip_lang = jo pehle se store ho chuka hai (user ka requested lang)
-    """
+    """Translate and cache the remaining languages in a daemon thread."""
     for lang in ALL_LANGUAGES:
         if lang == skip_lang:
             continue
@@ -359,13 +350,8 @@ def background_translate_and_cache(base_key: str, risk_level: str, reason_en: st
             print(f"Background translate failed ({lang}): {e}")
 
 def _save_to_redis_and_background_translate(base_key: str, risk_level: str, reason_en: str, user_lang: str) -> str:
-    """
-    1. English Redis mein store karo
-    2. User ki lang agar en nahi → translate + store
-    3. Baaki 5 languages → background thread
-    Returns: reason in user_lang
-    """
-    # English store
+    """Cache the English reason, requested language, and background translations."""
+    # Cache the English version first.
     redis_set(base_key, "en", risk_level, reason_en)
 
     user_reason = reason_en
@@ -373,7 +359,7 @@ def _save_to_redis_and_background_translate(base_key: str, risk_level: str, reas
         user_reason = translate_reason_sync(reason_en, user_lang)
         redis_set(base_key, user_lang, risk_level, user_reason)
 
-    # Background mein baaki languages
+    # Translate the remaining languages in the background.
     t = threading.Thread(
         target=background_translate_and_cache,
         args=(base_key, risk_level, reason_en, user_lang),
@@ -383,7 +369,7 @@ def _save_to_redis_and_background_translate(base_key: str, risk_level: str, reas
 
     return user_reason
 
-# --- API WORKERS (The Detectives) ---
+# API workers
 def scan_virustotal(file_hash):
     """Checks file reputation using VirusTotal API."""
     if not VT_API_KEY:
@@ -506,11 +492,11 @@ def scan_groq_ai(text_message, context_flag="", lang="en"):
 def scan_alienvault(indicator: str, indicator_type: str = "file"): 
     """Checks AlienVault OTX (100% FREE) for file hashes or URLs."""
 
-    # THE FIX: AlienVault API understands 'IPv4', not 'ip'
+    # AlienVault expects the indicator type "IPv4", not "ip".
     api_indicator_type = indicator_type
 
 
-    # Ab URL ekdum sahi banega: /indicators/IPv4/106.55.164.91/general
+    # Build the indicator URL with the normalized type.
     OTX_URL = f"https://otx.alienvault.com/api/v1/indicators/{api_indicator_type}/{indicator}/general"
     
     try:
@@ -520,17 +506,17 @@ def scan_alienvault(indicator: str, indicator_type: str = "file"):
             pulse_info = data.get("pulse_info", {})
             pulse_count = pulse_info.get("count", 0)
             
-            # SMART THRESHOLD LOGIC
+            # Apply a higher threshold for URL indicators.
             if indicator_type == "url" and pulse_count >= 5:
                 return {
                     "risk_level": "DANGER",
-                    "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # BRANDING
+                    "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # Use the Aeglis service name.
                     "type": "Aeglis_DEEP_INTEL"
                 }
             elif indicator_type != "url" and pulse_count > 0:
                 return {
                     "risk_level": "DANGER",
-                    "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # BRANDING
+                    "reason": f"Aeglis Deep-Intel Network Alert: Flagged by {pulse_count} global security nodes.", # Use the Aeglis service name.
                     "type": "Aeglis_DEEP_INTEL"
                 }
                 
@@ -540,7 +526,7 @@ def scan_alienvault(indicator: str, indicator_type: str = "file"):
         return None
         
 
-# --- THE MASTER ROUTER (WATERFALL MODEL) ---
+# Master scan router
 async def scan_groq_visual_for_phishing(screenshot_b64: str, target_url: str, lang: str = "en"):
     """Runs a Groq vision check to catch visual-only phishing (e.g., fake SBI/HDFC UI)."""
     language_map = {
@@ -647,30 +633,13 @@ Reason must be in {target_language}.
         print(f"[DEBUG - VISION API] API Request Crashed (Timeout or Network): {e}")
         return None
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PATCH — core_engine.py
-#
-# Step 1: File ke TOP pe existing imports ke baad yeh line add karo:
-# from input_classifier import classify_input
-#
-# Step 2: Sirf Aeglis_master_scan function ko replace karo.
-# Baaki kuch nahi badlna — get_domain_age, scan_groq_ai,
-# scan_webrisk, redis helpers, whitelist — sab same.
-# ─────────────────────────────────────────────────────────────────────────────
+# Input classification is applied before the main scan pipeline.
 
 async def Aeglis_master_scan(user_input, lang="en"):
 
     user_input = user_input.strip()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # STEP -1 INPUT CLASSIFIER (NEW)
-    # ──────────────────────────────────────────────────────────────────────────
-    # Scan se pehle ek lightweight AI call (gpt-oss-20b, ~70 tokens) jo batata:
-    # skip_scan → Bank SMS / OTP = instant SAFE, zero scan
-    # ignore_urgency → Legitimate promo = urgency flag ignore karo
-    # strict_mode → Scam/suspicious = full strict pipeline
-    # cleaned_input → UPI VPAs (@kotakpay etc) hata ke URL detector safe karo
-    # ══════════════════════════════════════════════════════════════════════════
+    # Classify the input before running the main scan pipeline.
 
     classification = classify_input(user_input)
 
@@ -682,7 +651,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
         f"confidence={classification['confidence']}"
     )
 
-    # ── Instant SAFE — bank SMS, OTP only (NOT normal text) ──────────────────
+    # Return immediately for trusted bank transaction and OTP messages.
     if classification["skip_scan"]:
         safe_reasons = {
             "BANK_TRANSACTION": (
@@ -709,11 +678,10 @@ async def Aeglis_master_scan(user_input, lang="en"):
             "credits_used": 0
         }
 
-    # ── Use cleaned input (UPI VPAs removed) for rest of pipeline ────────────
+    # Use the cleaned input for the rest of the pipeline.
     user_input_for_scan = classification["cleaned_input"]
 
-    # ── Inject classification context into intel_context ─────────────────────
-    # Yeh baad mein scan_groq_ai ke context_flag mein jayega
+    # Include the classification context in the AI threat-intelligence prompt.
     classifier_context = []
 
     classifier_context.append(
@@ -743,9 +711,8 @@ async def Aeglis_master_scan(user_input, lang="en"):
             "These are standard Indian payment identifiers — NOT suspicious URLs."
         )
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # STEP 0A WHITELIST PRE-CHECK (unchanged — O(1) RAM lookup)
-    # ══════════════════════════════════════════════════════════════════════════
+    
+    # Check the in-memory whitelist before using external services.
 
     _pre_url_match = URL_PATTERN.search(user_input_for_scan)
     if _pre_url_match:
@@ -765,9 +732,8 @@ async def Aeglis_master_scan(user_input, lang="en"):
                 "type": "AEGLIS_WHITELIST"
             }
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # STEP 0B REDIS CHECK (unchanged)
-    # ══════════════════════════════════════════════════════════════════════════
+
+    # Check Redis for a cached result.
 
     url_check = URL_PATTERN.search(user_input_for_scan)
     is_cacheable = bool(url_check)
@@ -793,11 +759,10 @@ async def Aeglis_master_scan(user_input, lang="en"):
                     "type": "CACHED_RESULT"
                 }
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # INPUT TYPE DETECT (on cleaned input)
-    # ══════════════════════════════════════════════════════════════════════════
-
-    intel_context = classifier_context # classifier context already injected
+    
+    # Determine the input type from the cleaned text.
+    
+    intel_context = classifier_context # Start with the classifier context.
 
     url_found = URL_PATTERN.search(user_input_for_scan)
     has_url = bool(url_found)
@@ -812,7 +777,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
         f"mixed={is_mixed} | pure_text={is_pure_text}"
     )
 
-    # ── 1. HASH SCAN ──────────────────────────────────────────────────────────
+    # 1. Hash scan
     if is_valid_hash(user_input_for_scan):
         vt_res = scan_virustotal(user_input_for_scan)
         intel_context.append(f"Aeglis Autopsy Sandbox: {vt_res}")
@@ -823,7 +788,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
         )
         return result
 
-    # ── 2. URL SCAN ───────────────────────────────────────────────────────────
+    # 2. URL scan
     if has_url:
         target_url = url_found.group(0)
         pure_domain = extract_pure_domain_from_user_input(target_url)
@@ -888,19 +853,19 @@ async def Aeglis_master_scan(user_input, lang="en"):
                     )
                 return result
 
-        # ══════════════════════════════════════════════════════════════════════════
-        # PARALLEL STAGE 1: DATA GATHERING (Domain Age + WebRisk + Sandbox)
-        # ══════════════════════════════════════════════════════════════════════════
+       
+        # Run domain-age, Web Risk, and sandbox checks in parallel.
+        
         print(f"\n[DEBUG - ENGINE] Launching 3-Way Parallel Scans for: {target_url}")
 
         age_domain_target = get_base_domain(pure_domain) or pure_domain
 
-        # Teeno tasks ko queue mein daalo
+       
         task_domain_age = asyncio.to_thread(get_domain_age, age_domain_target)
         task_webrisk    = asyncio.to_thread(scan_webrisk, target_url)
         task_sandbox    = run_url_scanner(target_url)
 
-        # Teeno ko ek sath fire karo!
+        
         try:
             age_days, webrisk_res, sandbox_res = await asyncio.gather(
                 task_domain_age, task_webrisk, task_sandbox
@@ -911,7 +876,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
             webrisk_res = {"risk_level": "ERROR", "reason": "Parallel execution failed."}
             sandbox_res = {"status": "failed", "error_message": str(e)}
 
-        # ── 1. Process Domain Age ──
+        # Process the domain age result.
         if age_days is None:
             intel_context.append("Domain age: unknown (WHOIS lookup failed, treat as unverified)")
         elif age_days == -1:
@@ -921,10 +886,10 @@ async def Aeglis_master_scan(user_input, lang="en"):
             if age_days < 7:
                 intel_context.append("WARNING: Very new domain (< 7 days). High phishing risk.")
 
-        # ── 2. Process WebRisk ──
+        # Add the Web Risk result to the analysis context.
         intel_context.append(f"Aeglis SafeLink Engine: {webrisk_res}")
 
-        # ── 3. Process Sandbox ──
+        # Process the dynamic sandbox result.
         print(f"[DEBUG - ENGINE] Sandbox Status Returned: {sandbox_res.get('status')}")
 
         visual_res     = None
@@ -956,15 +921,15 @@ async def Aeglis_master_scan(user_input, lang="en"):
                 intel_context.append(f"User message surrounding text: '{surrounding_text}'")
                 intel_context.append("Analyze surrounding text for social engineering, urgency tactics, fake money promises, etc.")
 
-        # JS threat → force DANGER instantly
+        # Runtime threats are immediately classified as dangerous.
         if sandbox_threat:
             reason_en = "Suspicious runtime behavior detected (clipboard hijack / redirect / crypto mining / data exfil)."
             final_reason = _save_to_redis_and_background_translate(base_key, "DANGER", reason_en, lang)
             return {"risk_level": "DANGER", "reason": final_reason, "type": "JS_BEHAVIOR"}
 
-        # ══════════════════════════════════════════════════════════════════════════
-        # PARALLEL STAGE 2: AI BRAINS (Text AI + Vision AI)
-        # ══════════════════════════════════════════════════════════════════════════
+        
+        # Run text and vision analysis in parallel when a screenshot is available.
+       
         print("\n[DEBUG - ENGINE] Launching AI Brains in Parallel...")
 
         task_text_ai = asyncio.to_thread(scan_groq_ai, user_input_for_scan, " | ".join(intel_context), "en")
@@ -981,7 +946,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
             print("[DEBUG - ENGINE] No screenshot available, skipping Vision AI.")
             text_res = await task_text_ai
 
-        # Priority Sorting
+        # Select the highest-severity result.
         candidates = [text_res]
         if visual_res:
             candidates.append(visual_res)
@@ -1000,8 +965,7 @@ async def Aeglis_master_scan(user_input, lang="en"):
 
         return final
 
-    # ── 3. PURE TEXT SCAN ─────────────────────────────────────────────────────
-    # Social engineering, job fraud, romance scam, fake govt notice — sab yahan
+    # 3. Pure text scan: check for social engineering and scam patterns.
     intel_context.append("Pure text input — no URL/IP/hash found.")
     intel_context.append(
         "Analyze for: social engineering, fake offers, "
@@ -1014,5 +978,5 @@ async def Aeglis_master_scan(user_input, lang="en"):
         context_flag=" | ".join(intel_context),
         lang=lang
     )
-    # Pure text Redis mein NAHI save karte — har user ka text unique hota hai
+   
     return result

@@ -15,7 +15,7 @@ from pdfminer.high_level import extract_text
 from androguard.misc import AnalyzeAPK
 from groq import AsyncGroq
 
-# oletools — VBA macro analysis
+# VBA macro analysis is optional and depends on oletools being installed.
 try:
     from oletools.olevba import VBA_Parser, TYPE_OLE, TYPE_OpenXML
     OLETOOLS_AVAILABLE = True
@@ -23,7 +23,7 @@ except ImportError:
     OLETOOLS_AVAILABLE = False
     print("oletools not installed. Run: pip install -U oletools")
 
-# pefile — PE header analysis
+# PE header analysis is optional and depends on pefile.
 try:
     import pefile
     PEFILE_AVAILABLE = True
@@ -31,7 +31,7 @@ except ImportError:
     PEFILE_AVAILABLE = False
     print("pefile not installed. Run: pip install pefile")
 
-# Shared intelligence from core_engine
+# Shared intelligence from the core scanning engine.
 from core_engine import (
     URL_PATTERN,
     scan_virustotal,
@@ -39,13 +39,13 @@ from core_engine import (
     scan_webrisk,
 )
 
-# ── LANGUAGE MAP ──────────────────────────────────────────────────────
+# Common language labels used in user-facing reasons.
 LANGUAGE_MAP = {
     "en": "English", "hi": "Hindi", "ar": "Arabic",
     "es": "Spanish", "pt": "Portuguese", "in": "Indonesian"
 }
 
-# ── DANGEROUS APK PERMISSIONS ─────────────────────────────────────────
+# Permissions that should be treated as high risk for Android apps.
 DANGEROUS_PERMISSIONS = {
     "android.permission.READ_SMS": "CRITICAL",
     "android.permission.RECEIVE_SMS": "CRITICAL",
@@ -66,8 +66,7 @@ DANGEROUS_PERMISSIONS = {
 }
 SEVERITY_WEIGHT = {"CRITICAL": 30, "HIGH": 20, "MEDIUM": 10}
 
-# ── VBA MACRO DANGER KEYWORDS ─────────────────────────────────────────
-# These trigger DANGER regardless of context
+# VBA macro keywords that imply execution or persistence. These are treated as high risk even without more context.
 VBA_DANGER_KEYWORDS = {
     "AutoOpen", "AutoClose", "Auto_Open", "Auto_Close",
     "Document_Open", "Workbook_Open", # auto-execute triggers
@@ -83,14 +82,14 @@ VBA_SUSPICIOUS_KEYWORDS = {
     "RegWrite", "RegRead", # registry access
 }
 
-# ── DANGEROUS EXECUTABLES INSIDE ZIP ─────────────────────────────────
+# Executable and script extensions that are risky inside archives.
 DANGEROUS_ZIP_EXTENSIONS = {
     ".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs",
     ".js", ".jar", ".scr", ".msi", ".apk", ".sh", ".hta",
     ".pif", ".com", ".reg", ".inf",
 }
 
-# ── SCRIPT DANGER PATTERNS ────────────────────────────────────────────
+# Known malicious script patterns used in Windows command and scripting payloads.
 SCRIPT_DANGER_PATTERNS = [
     # PowerShell
     rb"Invoke-WebRequest", rb"Invoke-Expression",
@@ -110,7 +109,7 @@ SCRIPT_DANGER_PATTERNS = [
     rb"Execute\s*\(", rb"Eval\s*\(",
 ]
 
-# ── PE (EXE/DLL) DANGER STRINGS ──────────────────────────────────────
+# PE imports and strings commonly linked to injection, persistence, and malware behavior.
 PE_DANGER_STRINGS = [
     b"IsDebuggerPresent", # anti-debug
     b"VirtualAlloc", # shellcode injection
@@ -125,7 +124,7 @@ PE_DANGER_STRINGS = [
     b"InternetOpenUrl", # network access
 ]
 
-# ── JS OBFUSCATION PATTERNS ───────────────────────────────────────────
+# Common JavaScript obfuscation patterns used in malicious scripts and payloads.
 JS_OBFUSCATION_PATTERNS = [
     r"eval\s*\(", # eval()
     r"Function\s*\(['\"]", # Function constructor
@@ -149,9 +148,7 @@ class AeglisEngine:
         os.makedirs(upload_dir, exist_ok=True)
         self.groq_client = AsyncGroq(api_key=os.environ.get("GROQ_API_KEY"))
 
-    # ═══════════════════════════════════════════════════════════════════
-    # UTILITIES
-    # ═══════════════════════════════════════════════════════════════════
+    # Helper methods used across the scan pipeline.
 
     def _get_file_hash(self, path: str) -> str | None:
         sha256 = hashlib.sha256()
@@ -165,9 +162,7 @@ class AeglisEngine:
             return None
 
     def _consolidate_verdict(self, vt_report: dict, specialized: dict) -> dict:
-        """
-        VT/AlienVault result + specialized scan result mein jo serious ho woh final.
-        """
+        """Choose the more serious verdict from the reputation and local analysis results."""
         priority = {"DANGER": 3, "WARNING": 2, "SAFE": 1, "UNKNOWN": 0}
 
         vt_level = vt_report.get("risk_level", "UNKNOWN")
@@ -186,26 +181,22 @@ class AeglisEngine:
             "reason": specialized.get("reason", "Flagged by Aeglis static analysis.")
         }
 
-    # ═══════════════════════════════════════════════════════════════════
-    # AI GATEKEEPER — VT credits bachata hai
-    # Files NEVER upload hoti hain — sirf text chunk AI ko jaata hai
-    # ═══════════════════════════════════════════════════════════════════
+    # Use a lightweight local AI check before hitting third-party reputation services.
 
     async def _ai_gatekeeper_check(self, path: str, file_type: str, file_content: bytes = None) -> int:
         """
-        File ka pehla 4KB locally padh ke AI se suspicion score lo (1-10).
-        Score >= 7 → VT hash check karo
-        Score < 7 → VT skip karo, credits bachao
+        Read the first 4 KB locally and request a suspicion score from the AI.
+        Scores of 7 or higher trigger a VirusTotal hash check.
+        Lower scores skip VirusTotal and save credits.
 
-        Images bypass karte hain — Vision Engine handle karti hai.
-        NOTE: File content KABHI bahar nahi jaata. Sirf cleaned text snippet Groq ko deta hai.
+        Images bypass this check because the vision engine handles them.
+        Only a cleaned text snippet is sent to Groq; the file itself is never uploaded.
         """
         if "image" in file_type:
             print("Image — skipping text gatekeeper, Vision Engine will handle.")
             return 1
 
-        # Binary formats ke liye bypass — ye UTF-8 decode nahi honge,
-        # unke dedicated scanners hain (_scan_apk, _scan_executable, _scan_zip)
+        # Skip binary formats because they have dedicated scanners.
         BINARY_MIME_MARKERS = (
             "zip", "x-rar", "x-7z", # archives
             "x-dosexec", "x-msdownload", # EXE/DLL/MSI
@@ -250,21 +241,18 @@ class AeglisEngine:
 
         except Exception as e:
             print(f"Gatekeeper error: {e}")
-            return 8 # Fail safe — VT chalao
+            return 8 # Fail safely by triggering the VirusTotal check.
 
-    # ═══════════════════════════════════════════════════════════════════
-    # MAIN ENTRY POINT
-    # ═══════════════════════════════════════════════════════════════════
+    # Entry point for the file analysis pipeline.
 
     async def analyze_file(self, file_path: str, lang: str = "en") -> dict:
         """
-        PIPELINE (files kabhi upload nahi hongi):
-        1. MIME + SHA-256 hash locally
-        2. Local Supabase cache (hash only)
-        3. AlienVault hash reputation (hash only — no upload)  — parallel with static analysis
-        4. AI Gatekeeper → sirf suspicious pe VT hash check
-        5. Specialized LOCAL static analysis                    — parallel with reputation
-        6. Final verdict consolidate
+        File analysis pipeline without uploading the file:
+        1. Detect MIME type and compute a local SHA-256 hash.
+        2. Check local cache and reputation feeds against the hash.
+        3. Run a narrow AI suspicion check before calling VirusTotal.
+        4. Perform local static analysis for the file type.
+        5. Consolidate both results into a final verdict.
         """
         mime = magic.Magic(mime=True)
         file_type = mime.from_file(file_path)
@@ -276,14 +264,12 @@ class AeglisEngine:
         print(f"Hash: {file_hash[:16]}..." if file_hash else "Hash: N/A")
         print(f"{'='*50}")
 
-        # ═══════════════════════════════════════════════════════════════════
-        # TASK 1: HASH REPUTATION (AlienVault -> Gatekeeper -> VT)
-        # ═══════════════════════════════════════════════════════════════════
+        # Phase 1: gather reputation data from external hash checks and local AI review.
         async def fetch_reputation():
             if not file_hash:
                 return {"risk_level": "UNKNOWN", "reason": "No hash available."}
 
-            # FIX: Async thread mein daala taaki server block na ho
+            # Run the blocking reputation request in a worker thread.
             av_res = await asyncio.to_thread(scan_alienvault, file_hash, indicator_type="file")
 
             if av_res and av_res.get("risk_level") == "DANGER":
@@ -295,7 +281,7 @@ class AeglisEngine:
 
             if ai_score >= 7:
                 print(f"Score {ai_score}/10 — checking VirusTotal hash...")
-                # FIX: Thread mein daala
+                # Run the blocking request in a worker thread.
                 return await asyncio.to_thread(scan_virustotal, file_hash)
 
             print(f"Score {ai_score}/10 — hash not submitted to VT.")
@@ -304,9 +290,7 @@ class AeglisEngine:
                 "reason": "Cleared by Aeglis AI Gatekeeper (local analysis)."
             }
 
-        # ═══════════════════════════════════════════════════════════════════
-        # TASK 2: LOCAL STATIC ANALYSIS
-        # ═══════════════════════════════════════════════════════════════════
+        # Phase 2: run the file-type-specific static analysis locally.
         async def run_local_analysis():
             print(f"Starting local static analysis...")
             if "pdf" in file_type:
@@ -330,15 +314,13 @@ class AeglisEngine:
             else:
                 return await asyncio.to_thread(self._scan_generic, file_path)
 
-        # ═══════════════════════════════════════════════════════════════════
-        # FIRE BOTH TASKS IN PARALLEL
-        # ═══════════════════════════════════════════════════════════════════
+        # Run both analysis phases in parallel.
         vt_report, specialized = await asyncio.gather(
             fetch_reputation(),
             run_local_analysis()
         )
 
-        # ── FINAL VERDICT ─────────────────────────────────────────────
+        # Combine the results into one final verdict.
         final_verdict = self._consolidate_verdict(vt_report, specialized)
 
         return {
@@ -351,23 +333,10 @@ class AeglisEngine:
             "threat_detected": final_verdict["risk_level"] == "DANGER",
         }
 
-    # ═══════════════════════════════════════════════════════════════════
-    # LOCAL ENGINE 1 — OFFICE MACROS (oletools)
-    # ═══════════════════════════════════════════════════════════════════
+    # Office macro analysis using oletools.
 
     def _scan_office_macros(self, path: str) -> dict:
-        """
-        DOCX/XLSX/PPTX/DOC/XLS macro analysis using oletools.
-        File kabhi bahar nahi jaati — pure local analysis.
-
-        Detects:
-        → VBA macros
-        → Auto-execute triggers (AutoOpen, Document_Open, etc.)
-        → Dangerous keywords (Shell, CreateObject, powershell)
-        → Obfuscation (Base64, Chr(), StrReverse)
-        → Hidden sheets (Excel)
-        → External relationships
-        """
+        """Check Office documents for macro triggers, suspicious code, and hidden behaviors."""
         findings = {
             "type": "OFFICE_MACRO_ANALYSIS",
             "has_macros": False,
@@ -382,7 +351,7 @@ class AeglisEngine:
 
         filename = os.path.basename(path).lower()
 
-        # ── oletools VBA analysis ──────────────────────────────────────
+        # Use oletools to inspect VBA macros when it is available.
         if OLETOOLS_AVAILABLE:
             try:
                 vba_parser = VBA_Parser(path)
@@ -416,7 +385,7 @@ class AeglisEngine:
                 print(f"oletools error: {e}")
 
         else:
-            # oletools nahi hai — ZIP as fallback (Office files are ZIP)
+            # Fall back to ZIP inspection when oletools is unavailable.
             findings["suspicious_flags"].append("oletools unavailable — using ZIP fallback")
             try:
                 if zipfile.is_zipfile(path):
@@ -434,7 +403,7 @@ class AeglisEngine:
             except Exception as e:
                 findings["suspicious_flags"].append(f"ZIP fallback error: {e}")
 
-        # ── Hidden sheets check (Excel only) ──────────────────────────
+        # Look for hidden Excel sheets, which can be used to hide malicious content.
         if filename.endswith((".xlsx", ".xlsm", ".xls")):
             try:
                 if zipfile.is_zipfile(path):
@@ -450,7 +419,7 @@ class AeglisEngine:
             except Exception:
                 pass
 
-        # ── External relationships check ───────────────────────────────
+        # Check for external links or relationships that may pull malicious content.
         try:
             if zipfile.is_zipfile(path):
                 with zipfile.ZipFile(path, "r") as zf:
@@ -466,7 +435,7 @@ class AeglisEngine:
         except Exception:
             pass
 
-        # ── Final verdict ──────────────────────────────────────────────
+        # Finalize the macro verdict.
         if findings["danger_keywords"]:
             findings["threat_detected"] = True
             findings["risk_level"] = "DANGER"
@@ -502,19 +471,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # LOCAL ENGINE 2 — ZIP ARCHIVE
-    # ═══════════════════════════════════════════════════════════════════
+    # ZIP and RAR archive inspection.
 
     def _scan_zip(self, path: str) -> dict:
-        """
-        ZIP/RAR archive inspection — pure local, no extraction to disk.
-        Detects:
-        → Dangerous executables inside
-        → Nested ZIPs (zip bomb pattern)
-        → Password protected (suspicious)
-        → Path traversal attacks (../ in filenames)
-        """
+        """Inspect archives without extracting them to disk and flag suspicious files or layouts."""
         findings = {
             "type": "ZIP_ANALYSIS",
             "files_inside": [],
@@ -533,7 +493,7 @@ class AeglisEngine:
 
             with zipfile.ZipFile(path, "r") as zf:
 
-                # Password check
+                # Check whether the archive is password-protected or encrypted.
                 try:
                     zf.testzip()
                 except RuntimeError as e:
@@ -547,18 +507,18 @@ class AeglisEngine:
                     fname_lower = fname.lower()
                     ext = os.path.splitext(fname_lower)[1]
 
-                    # Path traversal attack
+                    # Detect path traversal attempts or obvious archive abuse.
                     if ".." in fname or fname.startswith("/"):
                         findings["suspicious_flags"].append(f"PATH_TRAVERSAL: {fname}")
 
-                    # Dangerous executable inside
+                    # Look for executable payloads inside the archive.
                     if ext in DANGEROUS_ZIP_EXTENSIONS:
                         findings["dangerous_files"].append(fname)
                         findings["suspicious_flags"].append(
                             f"DANGEROUS_FILE: {fname}"
                         )
 
-                    # Nested ZIP
+                    # Count nested archives, which may suggest a zip bomb or layered payload.
                     if ext == ".zip":
                         findings["nested_zips"] += 1
 
@@ -573,7 +533,7 @@ class AeglisEngine:
             findings["reason"] = "Archive could not be fully analyzed — treat with caution."
             return findings
 
-        # Verdict
+        # Determine the final archive risk level.
         has_exe = bool(findings["dangerous_files"])
         if has_exe:
             findings["threat_detected"] = True
@@ -592,17 +552,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # LOCAL ENGINE 3 — SCRIPT FILES (BAT/PS1/VBS/HTA)
-    # ═══════════════════════════════════════════════════════════════════
+    # Script analysis for BAT, CMD, PowerShell, VBS, and HTA files.
 
     async def _scan_script(self, path: str, file_type: str, lang: str = "en") -> dict:
-        """
-        BAT/CMD/PS1/VBS/HTA analysis:
-        → Local regex pattern matching (fast)
-        → AI Gatekeeper for context-aware analysis
-        Scripts are text files — AI reads them directly without any upload.
-        """
+        """Scan script files for known malicious commands or suspicious behavior using local patterns and AI review."""
         target_lang = LANGUAGE_MAP.get(lang, "English")
         findings = {
             "type": "SCRIPT_ANALYSIS",
@@ -619,13 +572,13 @@ class AeglisEngine:
 
             content_lower = content.lower()
 
-            # Local pattern matching — instant, no API
+            # Check for obvious malicious command patterns without making any external calls.
             for pattern in SCRIPT_DANGER_PATTERNS:
                 if re.search(pattern, content, re.IGNORECASE):
                     pattern_str = pattern.decode("utf-8", errors="ignore")
                     findings["matched_patterns"].append(pattern_str)
 
-            # AI Gatekeeper for deeper context analysis
+            # Run a deeper local AI review for context before deciding on the risk level.
             print("Running AI Gatekeeper on script...")
             ai_score = await self._ai_gatekeeper_check(path, file_type, file_content=content)
 
@@ -633,7 +586,7 @@ class AeglisEngine:
                 findings["threat_detected"] = True
                 findings["risk_level"] = "DANGER"
 
-                # AI se reason generate karo user ki language mein
+                # Generate the explanation in the user's language.
                 try:
                     clean_snippet = content[:2000].decode("utf-8", errors="ignore")
                     completion = await self.groq_client.chat.completions.create(
@@ -674,21 +627,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # LOCAL ENGINE 4 — JAVASCRIPT (.js)
-    # ═══════════════════════════════════════════════════════════════════
+    # JavaScript analysis for obfuscation and malicious behavior.
 
     def _scan_javascript(self, path: str) -> dict:
-        """
-        JS file obfuscation and malicious pattern detection.
-        Detects:
-        → eval() chains
-        → Base64 blobs
-        → Hex/unicode encoding spam
-        → document.write / innerHTML injection
-        → Crypto mining endpoints
-        → Data exfiltration patterns
-        """
+        """Look for obfuscated JavaScript, data exfiltration attempts, and mining code."""
         findings = {
             "type": "JAVASCRIPT_ANALYSIS",
             "obfuscation_score": 0,
@@ -703,14 +645,14 @@ class AeglisEngine:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read(1024 * 512) # First 512KB
 
-            # Obfuscation pattern matching
+            # Look for common obfuscation patterns used in malicious scripts.
             for pattern in JS_OBFUSCATION_PATTERNS:
                 matches = re.findall(pattern, content)
                 if matches:
                     findings["matched_patterns"].append(pattern)
                     findings["obfuscation_score"] += len(matches)
 
-            # Long base64 strings (data exfil / payload)
+            # Large base64 blobs often hide payloads or exfiltration logic.
             b64_blobs = re.findall(r'["\']([A-Za-z0-9+/]{100,}={0,2})["\']', content)
             if b64_blobs:
                 findings["suspicious_flags"].append(
@@ -718,7 +660,7 @@ class AeglisEngine:
                 )
                 findings["obfuscation_score"] += len(b64_blobs) * 5
 
-            # Crypto mining endpoints
+            # Flag known crypto-mining endpoints and related keywords.
             mining_keywords = ["stratum+tcp://", "coinhive", "cryptoloot",
                                "minero", "webmr.js", "hashrate"]
             for kw in mining_keywords:
@@ -726,7 +668,7 @@ class AeglisEngine:
                     findings["suspicious_flags"].append(f"CRYPTO_MINING: {kw}")
                     findings["obfuscation_score"] += 20
 
-            # Data exfil patterns
+            # Check for patterns that attempt to send data to a remote server.
             exfil_patterns = [
                 r"fetch\s*\(\s*['\"]https?://(?!(?:localhost|127\.0\.0\.1))",
                 r"XMLHttpRequest.*open\s*\(\s*['\"]POST",
@@ -737,7 +679,7 @@ class AeglisEngine:
                 if re.search(pat, content, re.IGNORECASE):
                     findings["suspicious_flags"].append(f"POSSIBLE_EXFIL: {pat[:40]}")
 
-            # Verdict based on score
+            # Score the script based on how suspicious it appears.
             if findings["obfuscation_score"] >= 30 or any("CRYPTO_MINING" in f for f in findings["suspicious_flags"]):
                 findings["threat_detected"] = True
                 findings["risk_level"] = "DANGER"
@@ -762,15 +704,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # LOCAL ENGINE 5 — SVG (XSS / Embedded JS)
-    # ═══════════════════════════════════════════════════════════════════
+    # SVG analysis for embedded script and browser-based attack vectors.
 
     def _scan_svg(self, path: str) -> dict:
-        """
-        SVG XML analysis for embedded JavaScript and XSS vectors.
-        SVGs can contain <script> tags and event handlers — dangerous in browsers.
-        """
+        """Inspect SVG files for script injection, XSS payloads, and external resource abuse."""
         findings = {
             "type": "SVG_ANALYSIS",
             "suspicious_flags": [],
@@ -785,11 +722,11 @@ class AeglisEngine:
 
             content_lower = content.lower()
 
-            # Script tags
+            # Look for embedded script tags and inline execution hooks.
             if "<script" in content_lower:
                 findings["suspicious_flags"].append("EMBEDDED_SCRIPT_TAG")
 
-            # JavaScript event handlers
+            # Check for browser event handlers that can execute JavaScript automatically.
             js_events = [
                 "onload=", "onclick=", "onerror=", "onmouseover=",
                 "onfocus=", "onblur=", "onkeydown=", "onmouseenter="
@@ -798,11 +735,11 @@ class AeglisEngine:
                 if event in content_lower:
                     findings["suspicious_flags"].append(f"JS_EVENT_HANDLER: {event}")
 
-            # javascript: URI scheme
+            # Detect javascript: URIs that trigger code execution when rendered.
             if "javascript:" in content_lower:
                 findings["suspicious_flags"].append("JAVASCRIPT_URI_SCHEME")
 
-            # External resource loading
+            # Look for external resource loading that could fetch remote content.
             external_refs = re.findall(
                 r'(?:href|src|xlink:href)\s*=\s*["\'](?:https?://|//)',
                 content, re.IGNORECASE
@@ -812,21 +749,21 @@ class AeglisEngine:
                     f"EXTERNAL_RESOURCE_LOAD: {len(external_refs)} references"
                 )
 
-            # XML namespace abuse
+            # Check for suspicious XML namespace usage and external references.
             if "xmlns:xlink" in content_lower and "http" in content_lower:
                 findings["suspicious_flags"].append("XLINK_NAMESPACE_EXTERNAL")
 
-            # data: URI with script
+            # Detect embedded data: URIs that may contain script content.
             if "data:text/html" in content_lower or "data:application/javascript" in content_lower:
                 findings["suspicious_flags"].append("DATA_URI_SCRIPT")
 
-            # Try XML parse — malformed SVG can be attack vector
+            # Try parsing the SVG as XML; malformed content may be used in an exploit.
             try:
                 ET.fromstring(content)
             except ET.ParseError:
                 findings["suspicious_flags"].append("MALFORMED_XML_STRUCTURE")
 
-            # Verdict
+            # Decide whether the SVG should be treated as dangerous.
             critical_flags = [
                 f for f in findings["suspicious_flags"]
                 if any(x in f for x in ["EMBEDDED_SCRIPT", "JAVASCRIPT_URI", "DATA_URI_SCRIPT"])
@@ -855,19 +792,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # LOCAL ENGINE 6 — EXE/MSI/DLL (PE Header + String Analysis)
-    # ═══════════════════════════════════════════════════════════════════
+    # PE-based static analysis for executables and installers.
 
     def _scan_executable(self, path: str) -> dict:
-        """
-        EXE/MSI/DLL/SCR static analysis:
-        → PE header validation (pefile)
-        → Digital signature check
-        → Suspicious import functions
-        → Dangerous string patterns
-        NOTE: File is read locally — never uploaded anywhere.
-        """
+        """Inspect executable files for suspicious imports, strings, and signing issues without uploading them."""
         findings = {
             "type": "EXECUTABLE_ANALYSIS",
             "is_signed": False,
@@ -879,19 +807,18 @@ class AeglisEngine:
             "reason": "Executable file — always verify source before running."
         }
 
-        # pefile PE header analysis
+        # Inspect the PE header and imports when pefile is available.
         if PEFILE_AVAILABLE:
             try:
                 pe = pefile.PE(path)
 
-                # Digital signature check (Authenticode)
-                # PE files with valid signature are more trustworthy
+                # Use signing metadata as a trust signal when available.
                 has_signature = hasattr(pe, "DIRECTORY_ENTRY_SECURITY")
                 findings["is_signed"] = has_signature
                 if not has_signature:
                     findings["suspicious_flags"].append("NOT_DIGITALLY_SIGNED")
 
-                # Import analysis — suspicious WinAPI functions
+                # Check for suspicious Windows APIs that are commonly used by malware.
                 if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
                     for entry in pe.DIRECTORY_ENTRY_IMPORT:
                         for imp in entry.imports:
@@ -906,7 +833,7 @@ class AeglisEngine:
             except Exception as e:
                 findings["suspicious_flags"].append(f"PE parse error: {e}")
 
-        # String-based analysis (works even without pefile)
+        # Run a string-based fallback check even when PE parsing is unavailable.
         try:
             with open(path, "rb") as f:
                 content = f.read(1024 * 512)
@@ -917,7 +844,7 @@ class AeglisEngine:
                     if pattern_str not in findings["suspicious_strings"]:
                         findings["suspicious_strings"].append(pattern_str)
 
-            # URL strings in executable
+            # Flag suspicious URLs embedded in the binary.
             urls_in_exe = URL_PATTERN.findall(content.decode("utf-8", errors="ignore"))
             suspicious_urls = [
                 u for u in urls_in_exe
@@ -932,7 +859,7 @@ class AeglisEngine:
         except Exception as e:
             findings["suspicious_flags"].append(f"String analysis error: {e}")
 
-        # Verdict
+        # Determine the final executable risk level.
         critical_imports = [
             i for i in findings["suspicious_imports"]
             if any(d in i for d in ["WriteProcessMemory", "CreateRemoteThread",
@@ -957,12 +884,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # PDF SCAN
-    # ═══════════════════════════════════════════════════════════════════
+    # PDF scanning for hidden script, auto-execution triggers, and malicious links.
 
     def _scan_pdf(self, path: str) -> dict:
-        """PDF: Hidden JS, Auto-open triggers, Malicious links, Embedded files."""
+        """Review PDFs for script execution, malicious links, and embedded objects."""
         findings = {
             "type": "PDF_ANALYSIS",
             "suspicious_flags": [],
@@ -976,13 +901,13 @@ class AeglisEngine:
             urls = list(set(URL_PATTERN.findall(content)))
             findings["indicators"] = urls
 
-            # FIX: Seedha WebRisk call — useless url_res=None check hata diya
+            # Call Web Risk directly; there is no intermediate URL result.
             for url in urls[:5]:
                 wr = scan_webrisk(url)
                 if wr and wr.get("risk_level") == "DANGER":
                     findings["suspicious_flags"].append(f"MALICIOUS_LINK: {url}")
 
-            # Binary checks
+            # Check the raw PDF bytes for known malicious markers.
             with open(path, "rb") as f:
                 raw = f.read()
                 checks = {
@@ -1014,12 +939,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # APK SCAN
-    # ═══════════════════════════════════════════════════════════════════
+    # APK analysis for risky Android permissions and sensitive app behavior.
 
     async def _scan_apk(self, path: str, lang: str = "en") -> dict:
-        """APK permissions analysis + Groq reason generation."""
+        """Review APK permissions and generate a human-readable warning when the app appears risky."""
         target_lang = LANGUAGE_MAP.get(lang, "English")
         findings = {
             "type": "APK_ADVANCED_SCAN",
@@ -1031,8 +954,7 @@ class AeglisEngine:
             "reason": "No dangerous permissions found."
         }
         try:
-            # AnalyzeAPK ek heavy sync call hai — event loop block na ho isliye
-            # background thread mein chalate hain
+            # AnalyzeAPK is synchronous and a bit heavy, so it runs in a worker thread.
             a, d, dx = await asyncio.to_thread(AnalyzeAPK, path)
             findings["package"] = a.get_package()
             permissions = a.get_permissions()
@@ -1090,12 +1012,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # IMAGE SCAN
-    # ═══════════════════════════════════════════════════════════════════
+    # Image analysis for EXIF metadata and visual phishing detection.
 
     async def _scan_image(self, path: str, lang: str = "en") -> dict:
-        """EXIF forensics + Groq Vision phishing detection."""
+        """Check images for metadata leaks and scam content using the vision model."""
         target_lang = LANGUAGE_MAP.get(lang, "English")
         findings = {
             "type": "AEGLIS_VISION_SCAN",
@@ -1122,7 +1042,7 @@ class AeglisEngine:
             with open(path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("utf-8")
 
-            print("Sending image to Vision AI...")
+            print("Sending image to the vision model...")
             completion = await self.groq_client.chat.completions.create(
                 messages=[
                     {
@@ -1165,12 +1085,10 @@ class AeglisEngine:
 
         return findings
 
-    # ═══════════════════════════════════════════════════════════════════
-    # GENERIC SCAN (fallback)
-    # ═══════════════════════════════════════════════════════════════════
+    # Generic fallback scan for unknown file types.
 
     def _scan_generic(self, path: str) -> dict:
-        """Fallback: URL extraction + code injection keyword detection."""
+        """Check unknown files for suspicious URLs and obvious code injection patterns."""
         findings = {
             "type": "GENERIC_SCAN",
             "indicators": [],

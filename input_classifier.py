@@ -7,7 +7,7 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ── ONLY 2 REGEX — UPI VPA detect + clean ────────────────────────────────────
+# UPI VPA detection and cleanup.
 UPI_VPA_PATTERN = re.compile(
     r'\b[a-zA-Z0-9._-]+@[a-zA-Z0-9]+\b'
 )
@@ -19,7 +19,7 @@ def clean_upi_vpas(text: str) -> str:
     """Remove UPI VPAs before URL detection so they aren't treated as URLs."""
     return UPI_VPA_PATTERN.sub('[UPI_VPA]', text)
 
-# ── AI CLASSIFIER ─────────────────────────────────────────────────────────────
+# AI classifier.
 
 CLASSIFIER_SYSTEM_PROMPT = """You are an input type classifier for Aeglis, an AI cybersecurity app used in India.
 
@@ -129,18 +129,18 @@ def ai_classify_input(user_input: str) -> dict:
             msg = choices[0].get("message", {})
             raw = (msg.get("content") or msg.get("reasoning_content") or "").strip()
 
-            # Strip <think>...</think> block — qwen3.6-27b thinking mode
+            # Remove the model's internal reasoning block, if present.
             import re as _re
             raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
 
-            # Strip markdown backticks
+            # Remove markdown code fences from the response.
             if raw.startswith("```"):
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
                 raw = raw.strip()
 
-            # Extract JSON object — handles extra text before/after
+            # Extract the JSON object if the model added surrounding text.
             json_match = _re.search(r"[{][^{}]*[}]", raw, _re.DOTALL)
             if json_match:
                 raw = json_match.group(0)
@@ -155,7 +155,7 @@ def ai_classify_input(user_input: str) -> dict:
     except Exception as e:
         print(f"[Classifier] AI call failed: {e}")
 
-    # Fallback — safe default, do full scan
+    # Use a safe default and run the full scan when classification fails.
     return {
         "type": "UNKNOWN",
         "skip_scan": False,

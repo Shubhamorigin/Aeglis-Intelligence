@@ -39,7 +39,7 @@ import io
 import csv
 from datetime import datetime, timedelta , timezone
 from apscheduler.schedulers.background import BackgroundScheduler
-# ── BILLING ROUTER ────────────────────────────────────────────────────────────
+# Billing router
 import io as _bio
 import base64 as _b64
 import qrcode
@@ -47,17 +47,15 @@ from pydantic import Field
 
 
 
-# =====================================================================
-# 1. INITIALIZATION & CONFIG
-# =====================================================================
+# 1. Initialization and configuration
 load_dotenv()
 
 app = FastAPI(
     title="Aeglis API v3",
     description="The Ultimate Hybrid AI Security Engine (Consumer + Developer B2B)",
-    docs_url=None,        # disables /docs (Swagger UI)
-    redoc_url=None,       # disables /redoc (ReDoc UI)
-    openapi_url=None      # disables /openapi.json (schema)
+    docs_url=None,        # Disable /docs (Swagger UI).
+    redoc_url=None,       # Disable /redoc (ReDoc UI).
+    openapi_url=None      # Disable /openapi.json.
 )
 
 
@@ -73,7 +71,7 @@ groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY", ""))
 # Middleware (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Production mein ise ["https://Aeglis-detect.in"] kar dena
+    allow_origins=["*"], # Restrict this to the production frontend before deployment.
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -81,15 +79,12 @@ app.add_middleware(
 
 MAX_FILE_SIZE = 50 * 1024 * 1024 # 50 MB safety limit
 
-# =====================================================================
-# 2. PYDANTIC MODELS (Strictly Secured)
-# =====================================================================
+# 2. Pydantic models
 
 class TextScanPayload(BaseModel):
     input_text: str
     lang: str = "en"
-    #  SECURITY FIX: Frontend se user_id accept karna band kar diya hai.
-    # Ab system sirf JWT token ko trust karega user_id nikalne ke liye.
+    # The user ID comes from the verified JWT, not from the frontend payload.
 
 class B2BScanRequest(BaseModel):
     input_text: str
@@ -97,10 +92,10 @@ class B2BScanRequest(BaseModel):
 
 class WebhookUpdateRequest(BaseModel):
     webhook_url: str
-    #  IDOR FIX: Removed user_id.
+    # The user ID is taken from the verified JWT.
 
 class DashboardKeyRequest(BaseModel):
-    pass # Empty body for key generation (user_id JWT se aayegi)
+    pass # The user ID comes from the JWT.
 
 class SignupPayload(BaseModel):
     email: EmailStr
@@ -127,9 +122,7 @@ class NativeGoogleAuth(BaseModel):
     google_token: str
 
 
-# =====================================================================
-# 3. CORE DEPENDENCIES (Security Guards)
-# =====================================================================
+# 3. Core dependencies and security guards
 
 async def get_current_user(request: Request) -> str:
     """Extracts and verifies JWT Token OR Device Key to return secure user_id (Hybrid Guard)"""
@@ -149,7 +142,7 @@ async def get_current_user(request: Request) -> str:
             
             
     except Exception as e:
-        # Backend terminal mein print karna zaroori hai debugging ke liye
+        # Keep the detailed error in the server logs for debugging.
         print(f"Auth Blocked: {str(e)}") 
         raise HTTPException(status_code=401, detail="Token verification failed")
 
@@ -211,7 +204,7 @@ async def verify_consumer_origin(request: Request):
         "http://localhost:5502",
         "http://127.0.0.1:5502"
     ]
-    # Chrome Extension requests allow karo
+    # Allow requests originating from a Chrome extension.
     if origin and origin.startswith("chrome-extension://"):
         return True
         
@@ -232,7 +225,7 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 async def verify_developer_key(authorization: str = Depends(api_key_header), request: Request = None) -> str:
     """B2B Security Guard: Extracts Dev ID, checks Quotas, and enforces strict Req/Sec"""
-    # endpoint name request se nikalo taaki log_api_call sahi endpoint save kare
+    # Capture the endpoint so request logs use the correct path.
     endpoint = request.url.path if request else "/v3/api/unknown"
     start_time = time.time()
 
@@ -248,7 +241,7 @@ async def verify_developer_key(authorization: str = Depends(api_key_header), req
     # 1. Verify API Key
     res = supabase_admin.table("api_keys").select("user_id, is_active").eq("key_hash", hashed_token).execute()
     if not res.data or not res.data[0]["is_active"]:
-        # 401 — key invalid, dev_user_id nahi mila so log nahi kar sakte, bas raise karo
+        # The user ID is unavailable for logging when the key is invalid.
         raise HTTPException(status_code=401, detail="Invalid or Inactive API Key")
 
     dev_user_id = res.data[0]["user_id"]
@@ -296,14 +289,12 @@ async def verify_developer_key(authorization: str = Depends(api_key_header), req
 
     return dev_user_id
 
-# =====================================================================
-# 4. HELPER FUNCTIONS
-# =====================================================================
+# 4. Helper functions
 
 async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
     """Groq Llama 3.3 Intelligence Analysis"""
     
-    #  1. The Smart Language Mapper (Short code to Full Name)
+    # Map the short language code to a full language name.
     language_map = {
         "en": "English",
         "hi": "Hindi",
@@ -312,11 +303,11 @@ async def get_ai_verdict(report_data: dict, context_val: str, lang: str = "en"):
         "in": "Indonesian",
         "ar": "Arabic"
     }
-    target_language = language_map.get(lang, "English") # Default English rahega
+    target_language = language_map.get(lang, "English") # Default to English.
     
     safe_context = context_val[:2000] + "... [TRUNCATED]" if context_val and len(context_val) > 2000 else context_val
     
-    #  2. Prompt mein target_language inject kar diya
+    # Include the requested language in the prompt.
     prompt = f"""
     You are Aeglis Intelligence, a senior cybersecurity analyst.
     Analyze this combined report and determine the safety.
@@ -391,9 +382,7 @@ async def process_b2b_deep_scan(dev_user_id: str, temp_path: str, filename: str,
         if os.path.exists(temp_path): os.remove(temp_path)
 
 
-# =====================================================================
-# 5. AUTHENTICATION (B2C & Developer Signup)
-# =====================================================================
+# 5. Authentication
 
 @app.post("/auth/signup")
 async def signup(payload: SignupPayload):
@@ -421,11 +410,10 @@ async def login(payload: LoginPayload):
 @app.post("/auth/google")
 async def google_auth_login(payload: GoogleAuthPayload = None):
     try:
-        # Frontend jo URL bhejega (Dev ya Consumer), usko yahan pakdenge
+        # Preserve the destination supplied by the frontend.
         target = payload.target_url if payload else "https://www.aeglis.com/app.html"
         
-        # SMART TRICK: Supabase/Google ko bol rahe hain ki callback ke time 
-        # ye 'target_url' wapas humein bhej dena
+        # Ask Supabase to return the destination URL through the callback.
         backend_callback = f"https://api.aeglis.com/auth/callback?target_url={target}"
         
         res = supabase.auth.sign_in_with_oauth({
@@ -442,21 +430,20 @@ async def google_auth_callback(request: Request, code: str, target_url: str = "h
         auth_response = supabase.auth.exchange_code_for_session({"auth_code": code})
         token = auth_response.session.access_token
         
-        #  TRUE SSO FIX: Hamesha pehle central Auth (5501) par bhejo token ke sath
+        # Send the token to the central authentication page first.
         central_auth = "https://www.aeglis.com/auth.html"
         
-        # User central auth pe aayega, wahan JS usko save karega, aur target_url pe bhej dega
+        # The central page stores the token and redirects to the destination.
         return RedirectResponse(url=f"{central_auth}?token={token}&redirect_to={target_url}")
     except Exception as e:
-        # Agar error aaya to fallback main login page par
+        # Return to the login page if authentication fails.
         return RedirectResponse(url="https://www.aeglis.com/auth.html?error=auth_failed")
 
 @app.post("/auth/native-google")
 async def native_google_login(payload: NativeGoogleAuth):
     """B2C Endpoint: For Android Native Google Sign-In via Supabase"""
     try:
-        #  Supabase ka apna Native Magic
-        # Ye Google Token ko verify karega aur user ko DB mein login/signup kar dega
+        # Let Supabase verify the Google token and create or sign in the user.
         auth_response = supabase.auth.sign_in_with_id_token({
             "provider": "google",
             "token": payload.google_token
@@ -465,7 +452,7 @@ async def native_google_login(payload: NativeGoogleAuth):
         if not auth_response.session:
             raise HTTPException(status_code=401, detail="Google Auth failed at Supabase")
             
-        # Supabase ne apna JWT (access_token) de diya hai!
+        # Supabase returned a JWT access token.
         return {
             "status": "success", 
             "access_token": auth_response.session.access_token,
@@ -483,39 +470,39 @@ async def native_google_login(payload: NativeGoogleAuth):
 async def get_my_profile(
     request: Request, 
     user_id: str = Depends(get_current_user),
-    x_client_type: str = Header(default="b2c")  #  Header se frontend ka type pakda
+    x_client_type: str = Header(default="b2c")  # Identify the requesting frontend.
 ):
     try:
         for attempt in range(3):
-            #  Step 1: Database se saara raw data utha lo (Naye columns ke sath)
+            # Step 1: Fetch the complete profile record.
             columns = 'id, full_name, email, app_credits, app_plan, api_plan, webhook_url, webhook_secret, monthly_api_usage'
             user_res = supabase_admin.table('profiles').select(columns).eq('id', user_id).execute()
             
             if user_res.data:
                 raw_data = user_res.data[0]
                 
-                #  Step 2: Base Profile (Jo dono dashboards ko chahiye)
+                # Step 2: Add fields shared by both dashboards.
                 filtered_profile = {
                     "id": raw_data["id"],
                     "full_name": raw_data["full_name"],
                     "email": raw_data["email"]
                 }
                 
-                #  Step 3: B2B Logic (Dev Dashboard)
+                # Step 3: Add developer dashboard fields for B2B clients.
                 if x_client_type == "b2b":
                     filtered_profile["plan_type"] = raw_data.get("api_plan", "free")
                     filtered_profile["monthly_api_usage"] = raw_data.get("monthly_api_usage", 0)
                     filtered_profile["webhook_url"] = raw_data.get("webhook_url")
                     filtered_profile["webhook_secret"] = raw_data.get("webhook_secret")
-                    # Notice: Yahan humne 'credit' dictionary mein add hi nahi kiya!
+                    # B2B responses do not expose consumer credits.
                     
-                #  Step 4: B2C Logic (Aeglis Mobile App)
+                # Step 4: Add consumer app fields for B2C clients.
                 else:
                     filtered_profile["plan_type"] = raw_data.get("app_plan", "free")
                     filtered_profile["credits"] = raw_data.get("app_credits", 0)
-                    # Notice: Yahan webhooks aur API usage skip kar diya taaki app light rahe!
+                    # Keep webhook and API usage fields out of the consumer response.
 
-                # Final clean response return karo
+                # Return the filtered profile.
                 return {"status": "success", "profile": filtered_profile}
                 
             await asyncio.sleep(0.5)
@@ -523,14 +510,12 @@ async def get_my_profile(
         return JSONResponse(status_code=404, content={"detail": "Profile not found. Please try again later."})
         
     except Exception as e:
-        print(f"Error: {e}") # Debugging ke liye console me print kar lena
+        print(f"Error: {e}") # Keep the database error in the server logs.
         return JSONResponse(status_code=500, content={"detail": "Database connection error"})
         
         
 
-# =====================================================================
-# 6. DEVELOPER B2B API & DASHBOARD ENDPOINTS
-# =====================================================================
+# 6. Developer API and dashboard endpoints
 
 b2b_router = APIRouter(prefix="/v3")
 
@@ -543,7 +528,7 @@ async def developer_scan(request: Request, payload: B2BScanRequest, dev_user_id:
         await log_api_call(dev_user_id, "/v3/api/scan", 200, start_time, core_result.get("risk_level"), payload.end_user_id)
         return {"status": "success", "data": core_result}
     except HTTPException as e:
-        # 429 (req/sec ya quota), 401 (bad key) — jo bhi aaye wahi log karo
+        # Log rate-limit and authentication errors with their actual status.
         await log_api_call(dev_user_id, "/v3/api/scan", e.status_code, start_time, None, payload.end_user_id)
         raise
     except Exception as e:
@@ -578,14 +563,14 @@ async def developer_deep_scan(
         await log_api_call(dev_user_id, "/v3/api/deep-scan", 202, start_time, None, end_user_id)
         return {"status": "processing", "message": "File accepted. Result will be dispatched to your Webhook."}
     except HTTPException as e:
-        # 413 (file badi), 429 (rate limit), 401 (bad key) — actual code log karo
+        # Log file-size, rate-limit, and authentication errors with their actual status.
         await log_api_call(dev_user_id, "/v3/api/deep-scan", e.status_code, start_time, None, end_user_id)
         raise
     except Exception as e:
         await log_api_call(dev_user_id, "/v3/api/deep-scan", 500, start_time, None, end_user_id)
         raise HTTPException(status_code=500, detail=f"Deep Scan Failed: {str(e)}")
 
-# ---> DASHBOARD ENDPOINTS (Secured by JWT Token for Frontend Access) <---
+# Dashboard endpoints secured by JWT authentication.
 @b2b_router.post("/dashboard/generate-key")
 async def dashboard_generate_key(
     request: Request,
@@ -640,19 +625,19 @@ async def get_api_logs(request: Request, current_user_id: str = Depends(get_curr
         threats_7d = 0
         total_latency = 0
         chart_counts = [0] * 7
-        actual_requests = 0  # 202 chhod ke sab count honge
+        actual_requests = 0  # Exclude accepted asynchronous requests.
 
         today_date = datetime.now(timezone.utc).date()
 
         for log in seven_day_data:
             if log.get("status_code") != 202:
-                actual_requests += 1  # 202 minus, baaki sab count
+                actual_requests += 1  # Count completed requests only.
 
             if log.get("risk_level") == "DANGER":
                 threats_7d += 1
             total_latency += log.get("latency_ms", 0)
 
-            # Parse time safely and calculate chart bucket (202 chart mein bhi nahi)
+            # Parse the timestamp and place the request in its chart bucket.
             if log.get("status_code") != 202:
                 log_time_str = log["created_at"].replace("Z", "+00:00")
                 log_date = datetime.fromisoformat(log_time_str).date()
@@ -661,7 +646,7 @@ async def get_api_logs(request: Request, current_user_id: str = Depends(get_curr
                 if 0 <= diff_days < 7:
                     chart_counts[6 - diff_days] += 1
 
-        total_7d = actual_requests  # 202 minus karke final count
+        total_7d = actual_requests  # Completed requests in the seven-day period.
         avg_latency = (total_latency / total_7d) if total_7d > 0 else 0
 
         # 4. SEND CLEAN, TINY PAYLOAD TO FRONTEND
@@ -719,9 +704,7 @@ async def get_csv_reports(request: Request, current_user_id: str = Depends(get_c
 
 
 
-# =====================================================================
-# BILLING ROUTER (UPI Payment Intent + UTR Submission)
-# =====================================================================
+# Billing endpoints for UPI payment intents and UTR submissions.
 
 billing_router = APIRouter(prefix="/api/v1/billing", tags=["Billing"])
 
@@ -814,7 +797,7 @@ async def submit_transaction_utr(
     try:
         if supabase:
             supabase_admin.table("billing_ledger").insert({
-                "user_id":       current_user_id,  # JWT se — frontend trust nahi
+                "user_id":       current_user_id,  # Use the verified JWT identity.
                 "profile_type":  payload.profile_type.upper(),
                 "plan_slug":     payload.plan_slug.lower(),
                 "billed_amount": payload.amount,
@@ -839,9 +822,7 @@ app.include_router(billing_router)
 app.include_router(b2b_router)
 
 
-# =====================================================================
-# 7. CONSUMER B2C ENDPOINTS (Protected by Rate Limits & JWT Auth)
-# =====================================================================
+# 7. Consumer endpoints
 
 @app.get("/")
 def health_check():
@@ -850,32 +831,28 @@ def health_check():
 @app.post("/scan")
 @limiter.limit("10/minute")
 async def scan_text(
-    request: Request, # FIX: SlowAPI needs request object first
+    request: Request, # SlowAPI requires the request object first.
     payload: TextScanPayload,
     current_user_id: str = Depends(get_current_user),
     _: bool = Depends(verify_consumer_origin)
 ):
     try:
         await verify_user_has_credits(current_user_id)
-        #  FIX: payload.lang ko Aeglis_master_scan mein bhej diya
+        # Pass the requested language to the master scan.
         core_result = await Aeglis_master_scan(payload.input_text, payload.lang)
             
         if supabase:
             supabase_admin.table("scans").insert({
                 "user_id": current_user_id,
-                "input_type": core_result.get('type', 'TEXT'), # FIX: type field ko safely access karna
+                "input_type": core_result.get('type', 'TEXT'), # Read the type safely.
                 "input_data": payload.input_text[:250],
                 "risk_level": core_result.get("risk_level"),
                 "reason": core_result.get("reason", "Analyzed by Aeglis Intelligence")
             }).execute()
 
-        # ── B2C CREDIT DEDUCTION ──────────────────────────────────────────
-        # AEGLIS_WHITELIST: Step 0A ne whitelist match kiya — zero compute,
-        #   zero Redis, seedha RAM se → credit nahi katna.
-        # CACHED_RESULT:    Sirf real (non-whitelist) scans cache hote hain.
-        #   Whitelist URLs Step 0A se return ho jaate hain isliye unka
-        #   CACHED_RESULT kabhi nahi aata → yahan credit correctly deduct hota
-        #   hai sirf genuine computation wale cached results ke liye.
+        # Deduct credits only for scans that used real computation.
+        # Whitelisted results use no compute or Redis and remain free.
+        # Cached results are charged only when they represent a real scan.
         FREE_SCAN_TYPES = {"AEGLIS_WHITELIST"}
         if core_result.get("type") not in FREE_SCAN_TYPES:
             await deduct_user_credit(current_user_id)
@@ -963,7 +940,7 @@ async def scan_intercept(
         raise HTTPException(status_code=502, detail=f"Scan intercept failed: {str(e)}")
 
     finally:
-        #  The Ultimate Cleanup: This block runs NO MATTER WHAT (success or fail)
+        # Always remove the temporary file after the scan.
         if os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -1005,18 +982,18 @@ async def deep_scan(
         }
 
         # 3. Get AI Intelligence Verdict
-        #  FIX: lang variable ko get_ai_verdict function mein bhej diya
+        # Pass the requested language to the AI verdict function.
         ai_res = await get_ai_verdict(combined_report, f"File: {file.filename} | Msg: {input_text or ''}", lang)
         print(f" Raw Groq Output: {ai_res}")
         
-        #  FIX 1: Safe dictionary .get() to prevent KeyErrors if Groq hallucinates
+        # Use defaults in case the AI response is missing fields.
         risk_level = ai_res.get("risk_level", "WARNING")
         reason = ai_res.get("reason", "Analyzed by Aeglis Intelligence")
 
         # 5. Save to Database History
         if supabase:
             try:
-                #  FIX 2: Protect against NoneType slicing if mime_type is missing
+                # Normalize the MIME type before truncating it.
                 mime_raw = file_report.get("mime_type")
                 mime_str = str(mime_raw) if mime_raw else "UNKNOWN"
                 mime_prefix = mime_str[:20]
@@ -1028,12 +1005,11 @@ async def deep_scan(
                     "risk_level": risk_level,
                     "reason": reason,
                     "ai_explanation": json.dumps(ai_res) if ai_res else None
-                    # Agar reason hi missing hua toh pura ai_res hi DB me save ho jayega, jo ki better hai than crashing the DB insert. (Ye field optional hona chahiye DB me) 
-                    #  FIX 3: Removed "ai_explanation" field to prevent DB crashes if column doesn't exist
+                    # Keep the stored explanation compatible with the database schema.
                 }).execute()
             except Exception as db_err:
                 print(f" History Save Error (Ignored): {db_err}")
-                # Agar DB fat bhi gaya, tab bhi user ko result dikhega!
+                # Return the scan result even if history storage fails.
 
         if os.path.exists(temp_path): os.remove(temp_path)
         
@@ -1053,13 +1029,13 @@ async def deep_scan(
     except Exception as e:
         if os.path.exists(temp_path): os.remove(temp_path)
         print(f" Deep Scan Error: {str(e)}")
-        # Ab terminal/log me exact error string print hogi
+        # Log the exact error for troubleshooting.
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
         
 @app.post("/get/history")
 async def get_history(request: Request, current_user_id: str = Depends(get_current_user)):
     
-    #  FIX: .eq('is_deleted', False) add kar diya hai
+    # Return only active history records.
     scan_res = supabase_admin.table('scans')\
         .select('id, input_data, risk_level, scanned_at, reason')\
         .eq('user_id', current_user_id)\
@@ -1082,7 +1058,7 @@ async def delete_history(
         if scan_id is None:
             raise ValueError("scan_id is missing or null from frontend!")
             
-        # Bina int() convert kiye direct pass kar do, Supabase dono (UUID/Int) samajhta hai
+        # Pass the identifier through without forcing it to an integer.
         supabase_admin.table('scans').update({"is_deleted": True}).eq('id', scan_id).eq('user_id', current_user_id).execute()
         
         return {"status": "success", "message": "Scan history entry deleted."}
@@ -1096,7 +1072,7 @@ async def delete_all_history(
     current_user_id: str = Depends(get_current_user)
 ):
     try:
-        # Seedha user ki token ID se uski saari history soft-delete ho jayegi
+        # Soft-delete all history records belonging to the authenticated user.
         supabase_admin.table('scans').update({"is_deleted": True}).eq('user_id', current_user_id).execute()
         return {"status": "success", "message": "All scan history entries deleted."}
     except Exception as e:
@@ -1105,16 +1081,16 @@ async def delete_all_history(
 
 
 @app.post("/support/ticket", tags=["Support"])
-@limiter.limit("3/minute")  # Spam protection: Ek IP se 1 minute mein max 3 ticket
+@limiter.limit("3/minute")  # Limit each IP to three tickets per minute.
 async def create_support_ticket(
-    request: Request, # SlowAPI rate limiter ke liye zaroori hai
+    request: Request, # Required by the SlowAPI rate limiter.
     payload: SupportTicketPayload,
-    _: bool = Depends(verify_consumer_origin) # Sirf Aeglis website se aayega, Postman se nahi (NO JWT NEEDED)
+    _: bool = Depends(verify_consumer_origin) # Allow requests only from the official frontend.
 ):
     """Public Endpoint: Anyone can submit a support ticket without logging in."""
     try:
         if supabase:
-            # supabase_admin (Service Key) use kar rahe hain taaki bina RLS/Login ke data insert ho sake
+            # Use the service client for server-side insertion without a user session.
             supabase_admin.table("support_tickets").insert({
                 "name": payload.name,
                 "email": payload.email,
@@ -1131,9 +1107,7 @@ async def create_support_ticket(
         raise HTTPException(status_code=500, detail="Failed to submit ticket. Please try again later.")
 
 
-# =====================================================================
-# 8. BACKGROUND ENGINES (Enterprise Cold Storage)
-# =====================================================================
+# 8. Background engines
 
 def archive_enterprise_logs():
     """Chunked Monthly B2B Log Archival to S3/Storage"""
