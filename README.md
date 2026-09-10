@@ -292,6 +292,8 @@ Configure a webhook through the dashboard route. The backend stores the URL and 
 
 ## Database and Storage Requirements
 
+The complete Supabase database schema is available in [`database.sql`](database.sql). Run this SQL script in the Supabase SQL Editor to create the required tables, extensions, policies, and supporting database objects.
+
 The application expects these Supabase tables or equivalent schema support:
 
 - `profiles`
