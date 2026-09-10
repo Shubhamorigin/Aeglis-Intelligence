@@ -77,7 +77,7 @@ The application combines the following layers:
 ## Project Structure
 
 ```text
-Aeglis-Backend/
+Aeglis-Intelligence/
 ├── .env
 ├── LICENSE
 ├── README.md
