@@ -6,6 +6,9 @@ Built by **Shubham**.
 
 [<img src="https://api.aaptics.in/widget/shubhamoriginx.svg?v=1" alt="Aaptics ID">](https://aaptics.in/@shubhamoriginx)
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Aeglis Intelligence is a Python FastAPI-based cybersecurity and risk-analysis service for detecting suspicious URLs, text-based scam content, malicious files, malware patterns, and risky Android APKs. It combines local detection logic, third-party threat intelligence, and AI-based analysis to produce risk scores and explanations for user-facing security workflows.
 
 The project supports both consumer and developer use cases:
@@ -77,7 +80,7 @@ The application combines the following layers:
 ## Project Structure
 
 ```text
-Aeglis-Backend/
+Aeglis-Intelligence/
 ├── .env
 ├── LICENSE
 ├── README.md
