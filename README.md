@@ -11,6 +11,18 @@ Built by **Shubham**.
 
 Aeglis Intelligence is a Python FastAPI-based cybersecurity and risk-analysis service for detecting suspicious URLs, text-based scam content, malicious files, malware patterns, and risky Android APKs. It combines local detection logic, third-party threat intelligence, and AI-based analysis to produce risk scores and explanations for user-facing security workflows.
 
+## About Aeglis Intelligence
+
+Aeglis Intelligence is a full-stack security analysis backend built to help applications, developers, and security-focused teams identify digital threats before they become costly incidents. The platform brings multiple security workflows together behind a single FastAPI service, allowing clients to scan suspicious messages, URLs, uploaded documents, archives, scripts, images, and Android packages through consistent API-driven interfaces.
+
+The system is designed for the reality of modern online fraud, where a threat may appear as a shortened link, a convincing payment request, a malicious attachment, a fake login page, or an application that quietly performs unsafe actions. Aeglis combines deterministic security rules, file inspection, domain intelligence, browser-based URL analysis, reputation services, and AI-assisted classification to build a broader picture of risk instead of relying on a single signal. Each analysis can produce a practical verdict, a risk score, and supporting context that can be used by a dashboard, consumer application, moderation workflow, or automated security pipeline.
+
+At its core, Aeglis supports two complementary experiences. Consumer-facing applications can use it to inspect text, links, downloads, and files in real time, helping users make safer decisions before opening or sharing potentially harmful content. Developer and business integrations can use protected APIs, API keys, usage quotas, scan history, webhooks, and structured responses to add security checks directly into their own products and operational workflows.
+
+The backend also provides the supporting infrastructure required by a production-oriented security product. Supabase handles authentication, user profiles, scan records, API logs, support tickets, billing data, and related persistence. Redis can cache frequently requested intelligence and scan information for faster responses, while external services such as VirusTotal, AlienVault, WebRisk, and Groq extend the platform's detection and analysis capabilities. Rate limiting, origin checks, API-key validation, JWT-protected routes, upload limits, and temporary file handling help establish a safer boundary around the service.
+
+Whether it is used as the intelligence layer for a consumer safety app, a malware and phishing analysis service, or a developer-facing security API, Aeglis Intelligence is built to make threat detection more accessible, explainable, and easier to integrate. The modular architecture keeps detection engines, integrations, storage, authentication, and delivery workflows separated so that the platform can evolve as new threat patterns and security requirements emerge.
+
 The project supports both consumer and developer use cases:
 
 - Consumer scanning for text, URLs, and uploaded files
